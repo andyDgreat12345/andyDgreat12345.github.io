@@ -1,0 +1,28 @@
+---
+const base = import.meta.env.BASE_URL;
+// normalize so links work whether base is '/' or '/repo/'
+const path = (p: string) => `${base}${p}`.replace(/\/{2,}/g, '/');
+const current = Astro.url.pathname.replace(/\/$/, '') || '/';
+
+const links = [
+  { href: path(''), label: 'Home' },
+  { href: path('projects'), label: 'Projects' },
+  { href: path('about'), label: 'About' },
+];
+
+const isCurrent = (href: string) => {
+  const h = href.replace(/\/$/, '') || '/';
+  return h === current;
+};
+---
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href={path('')}>Andy</a>
+    <nav class="nav">
+      {links.map((l) => (
+        <a href={l.href} aria-current={isCurrent(l.href) ? 'page' : undefined}>{l.label}</a>
+      ))}
+    </nav>
+  </div>
+</header>
