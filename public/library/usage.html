@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Token &amp; cost record — Debate System</title><style>
+:root{--bg:#fff;--soft:#f6f7f9;--card:#fff;--bd:#e6e8eb;--ink:#1a1d21;--mut:#5b636c;--acc:#2f6df6;--ds:#7a4ddb;--cl:#c98a1e;--ok:#2f8f5b;--radius:14px}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1116;--soft:#12161c;--card:#161b22;--bd:#262c36;--ink:#e6edf3;--mut:#9aa4b2;--acc:#5b8cff;--ds:#a480ff;--cl:#e0b35a;--ok:#3fb27f}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:860px;margin:0 auto;padding:34px 22px 60px}
+a.back{color:var(--acc);text-decoration:none;font-size:13px}
+h1{font-size:26px;margin:.3em 0}.lead{color:var(--mut)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:22px 0}
+.tile{border:1px solid var(--bd);border-radius:var(--radius);padding:16px 18px;background:var(--card)}
+.tile b{font-size:24px;display:block;line-height:1.1}.tile span{font-size:12.5px;color:var(--mut)}
+.tile.ds{border-top:3px solid var(--ds)}.tile.cl{border-top:3px solid var(--cl)}
+.gcard{border:1px solid var(--bd);border-radius:var(--radius);padding:16px 18px;margin:14px 0;background:var(--card)}
+.ghead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ghead h3{margin:0;font-size:16px}.gsum{font-size:13px;color:var(--mut)}.gsum b{color:var(--ink)}
+.tok{color:var(--cl)}
+.track{height:7px;background:var(--soft);border-radius:6px;margin:10px 0 4px;overflow:hidden}
+.fill{height:100%;background:linear-gradient(90deg,var(--ds),var(--acc))}
+table{border-collapse:collapse;width:100%;margin:10px 0 2px;font-size:13px}
+th,td{border-bottom:1px solid var(--bd);padding:7px 8px;text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.prov{font-size:10.5px;padding:1px 8px;border-radius:20px;font-weight:600}
+.prov.deepseek{background:color-mix(in srgb,var(--ds) 16%,transparent);color:var(--ds)}
+.prov.claude{background:color-mix(in srgb,var(--cl) 16%,transparent);color:var(--cl)}
+.dim{color:var(--mut);font-size:11px}
+.m{color:var(--ok);font-size:11px;font-weight:600}.e{color:var(--mut);font-size:11px;font-style:italic}
+.method{border:1px solid color-mix(in srgb,var(--acc) 30%,var(--bd));background:color-mix(in srgb,var(--acc) 7%,transparent);border-radius:var(--radius);padding:16px 18px;margin:24px 0}
+.method h3{margin:0 0 .4em}.method p{margin:.3em 0;font-size:13.5px;color:var(--mut)}
+.gen{color:var(--mut);font-size:12px;margin-top:30px}
+</style></head><body><div class="wrap">
+<a class="back" href="/debate">&larr; Debate</a>
+<h1>Token &amp; cost record</h1>
+<p class="lead">What every simulated round actually cost — broken down by round, by task, and by provider. Nothing here is rounded up to look cheap or down to look impressive; it's the real ledger.</p>
+
+<div class="tiles">
+  <div class="tile ds"><b>21.06 CNY</b><span>DeepSeek total — the volume work (prep, rounds, research, reflection). ≈ $2.93. Measured by balance.</span></div>
+  <div class="tile cl"><b>1,088,455</b><span>Claude tokens (itemized frontier work: judging, extraction, the spot-check). The quality gates.</span></div>
+</div>
+
+<div class="method">
+  <h3>How to read this — measured vs estimated</h3>
+  <p>DeepSeek cost = MEASURED by account-balance delta (reliable). DeepSeek tokens = ESTIMATED (its Anthropic-compat endpoint under-reports usage). Claude = token counts from each subagent&#x27;s completion notification: r3 spot-check EXACT; r1/r2 frontier judging ESTIMATED (not logged to file at the time). Going forward both are logged precisely.</p>
+  <p><span class="m">measured</span> = a real, logged number. <span class="e">est</span> = an estimate (DeepSeek token counts are derived from cost, because its endpoint under-reports usage; some early Claude judging wasn't logged to file).</p>
+</div>
+
+<div class="gcard"><div class="ghead"><h3>Setup / evals</h3><div class="gsum"><b>1.33 CNY  ·  $0.18</b></div></div>
+<div class="track"><div class="fill" style="width:10.2%"></div></div>
+<table><thead><tr><th>Task</th><th>Provider</th><th>Cost / tokens</th><th></th></tr></thead><tbody>
+<tr><td>model eval (Flash vs Pro vs gold standard)</td><td><span class="prov deepseek">deepseek</span></td><td>0.03 CNY  ·  $0.00 <span class="dim">(~15,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>self-debate proof (12 attacks + 4 frontlines)</td><td><span class="prov deepseek">deepseek</span></td><td>1.30 CNY  ·  $0.18 <span class="dim">(~700,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+</tbody></table></div>
+<div class="gcard"><div class="ghead"><h3>Round 1 (Narrators vs Technicians)</h3><div class="gsum"><b>13.05 CNY  ·  $1.81</b> &nbsp;·&nbsp; <span class="tok">460,000 Claude tok</span></div></div>
+<div class="track"><div class="fill" style="width:100.0%"></div></div>
+<table><thead><tr><th>Task</th><th>Provider</th><th>Cost / tokens</th><th></th></tr></thead><tbody>
+<tr><td>team prep x2 (research, cards, cases, blocks)</td><td><span class="prov deepseek">deepseek</span></td><td>1.26 CNY  ·  $0.17 <span class="dim">(~680,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>the round (13 speeches + 5 deep-clashes, uncapped + resume)</td><td><span class="prov deepseek">deepseek</span></td><td>9.30 CNY  ·  $1.29 <span class="dim">(~5,000,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>research interlock (9 cards)</td><td><span class="prov deepseek">deepseek</span></td><td>2.11 CNY  ·  $0.29 <span class="dim">(~1,100,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>reflection</td><td><span class="prov deepseek">deepseek</span></td><td>0.38 CNY  ·  $0.05 <span class="dim">(~200,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>3 judges + extraction (frontier)</td><td><span class="prov claude">claude</span></td><td>460,000 tokens</td><td><span class="e">est</span></td></tr>
+</tbody></table></div>
+<div class="gcard"><div class="ghead"><h3>Round 2 (Weighers vs Aggressors)</h3><div class="gsum"><b>6.68 CNY  ·  $0.93</b> &nbsp;·&nbsp; <span class="tok">499,000 Claude tok</span></div></div>
+<div class="track"><div class="fill" style="width:51.2%"></div></div>
+<table><thead><tr><th>Task</th><th>Provider</th><th>Cost / tokens</th><th></th></tr></thead><tbody>
+<tr><td>team prep x2</td><td><span class="prov deepseek">deepseek</span></td><td>1.36 CNY  ·  $0.19 <span class="dim">(~730,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>the round (capped at 5 CNY, incl. crash-resumes)</td><td><span class="prov deepseek">deepseek</span></td><td>5.06 CNY  ·  $0.70 <span class="dim">(~2,700,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>reflection</td><td><span class="prov deepseek">deepseek</span></td><td>0.26 CNY  ·  $0.04 <span class="dim">(~140,000 tok)</span></td><td><span class="m">measured</span></td></tr>
+<tr><td>3 judges (lay 69k, flow 69k, evidence 118k) + extraction 243k</td><td><span class="prov claude">claude</span></td><td>499,000 tokens</td><td><span class="m">measured</span></td></tr>
+</tbody></table></div>
+<div class="gcard"><div class="ghead"><h3>Round 3 (standards spot-check)</h3><div class="gsum"> &nbsp;·&nbsp; <span class="tok">129,455 Claude tok</span></div></div>
+<table><thead><tr><th>Task</th><th>Provider</th><th>Cost / tokens</th><th></th></tr></thead><tbody>
+<tr><td>case writer agent</td><td><span class="prov claude">claude</span></td><td>69,332 tokens</td><td><span class="m">measured</span></td></tr>
+<tr><td>adversarial grader agent</td><td><span class="prov claude">claude</span></td><td>60,123 tokens</td><td><span class="m">measured</span></td></tr>
+</tbody></table></div>
+
+<p class="gen">Generated 2026-07-19 from the local cost ledger. Re-generated after each round.</p>
+</div></body></html>
