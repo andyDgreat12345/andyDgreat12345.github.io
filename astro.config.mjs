@@ -6,6 +6,6 @@ import { defineConfig } from 'astro/config';
 // - If your repo has any other name (e.g. `personal-website`), set
 //   base: '/personal-website' and update `site` accordingly.
 export default defineConfig({
-  site: 'https://andydgreat12345.github.io',
+  site: 'https://andydgreat.github.io',
   base: '/',
 });
