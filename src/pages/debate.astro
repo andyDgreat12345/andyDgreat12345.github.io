@@ -1,0 +1,99 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const base = import.meta.env.BASE_URL;
+const path = (p: string) => `${base}${p}`.replace(/\/{2,}/g, '/');
+
+const posts = (await getCollection('debate')).sort((a, b) => a.data.order - b.data.order);
+const method = posts.filter((p) => p.data.kind === 'method');
+const results = posts.filter((p) => p.data.kind === 'results');
+
+const fmt = (d?: Date) =>
+  d ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
+
+const pipeline = [
+  ['Analyze', 'map the ground each side gets'],
+  ['Research', 'fetch sources, cut evidence to standard'],
+  ['Write', 'both cases, standardized structure'],
+  ['Debate', 'two philosophies, full round, in isolation'],
+  ['Judge', 'lay · flow · evidence panel'],
+  ['Reflect', 'rewrite the prep from what it learned'],
+];
+---
+
+<Base title="Debate" description="A self-improving AI system for competitive debate prep.">
+  <section class="hero" style="padding-bottom:8px">
+    <h1>Debate</h1>
+    <p class="lead">
+      A self-improving AI system that researches a resolution, writes both sides,
+      debates itself under real judges, and rewrites its own prep from what it learns.
+    </p>
+    <p class="muted small">
+      Method and retrospective results are public. Live prep for current topics stays
+      private — publishing this month's case just hands it to the other side.
+    </p>
+  </section>
+
+  <div class="pipeline">
+    {pipeline.map(([step, desc], i) => (
+      <div class="pstep">
+        <div class="pnum">{i + 1}</div>
+        <div><strong>{step}</strong><span class="muted small"> — {desc}</span></div>
+      </div>
+    ))}
+  </div>
+
+  <div class="section-head"><h2>How it works</h2></div>
+  <div class="grid">
+    {method.map((p) => (
+      <a class="card cardlink" href={path(`debate/${p.slug}`)}>
+        <h3>{p.data.title}</h3>
+        {p.data.date && <div class="meta">{fmt(p.data.date)}</div>}
+        <p>{p.data.summary}</p>
+        {p.data.tags.length > 0 && (
+          <div class="tags">{p.data.tags.map((t) => <span class="tag">{t}</span>)}</div>
+        )}
+      </a>
+    ))}
+  </div>
+
+  {results.length > 0 && (
+    <>
+      <div class="section-head"><h2>Results</h2></div>
+      <div class="grid">
+        {results.map((p) => (
+          <a class="card cardlink" href={path(`debate/${p.slug}`)}>
+            <h3>{p.data.title}</h3>
+            {p.data.date && <div class="meta">{fmt(p.data.date)}</div>}
+            <p>{p.data.summary}</p>
+            {p.data.tags.length > 0 && (
+              <div class="tags">{p.data.tags.map((t) => <span class="tag">{t}</span>)}</div>
+            )}
+          </a>
+        ))}
+      </div>
+    </>
+  )}
+</Base>
+
+<style>
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 20px 0 8px;
+  }
+  .pstep {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px; background: var(--card);
+  }
+  .pnum {
+    flex: none; width: 24px; height: 24px; border-radius: 999px;
+    display: grid; place-items: center; font-size: .8rem; font-weight: 700;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .cardlink { display: block; color: inherit; }
+  .cardlink:hover { text-decoration: none; }
+</style>
