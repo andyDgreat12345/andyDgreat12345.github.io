@@ -1,0 +1,58 @@
+name: "Prep submission — request a simulated round"
+description: "Submit a debate case/prep to be stress-tested by the simulation system. Read the note about public visibility."
+title: "[Prep] <topic> — <side>"
+labels: ["prep-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for submitting. **This issue is PUBLIC** — anyone (including people you
+        debate) can read it. Only attach prep you're comfortable sharing openly (a past
+        topic, or prep you *want* tested in the open). For live competitive prep, fill
+        the request below and note "private files" — the reviewer will arrange a private
+        way to receive them. Submitting does not guarantee a run; each request is
+        reviewed and run at the maintainer's discretion.
+  - type: input
+    id: handle
+    attributes:
+      label: Your name or handle (optional)
+      placeholder: "e.g. @yourname, or a school/team"
+    validations:
+      required: false
+  - type: input
+    id: resolution
+    attributes:
+      label: Resolution / topic
+      placeholder: "Resolved: ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: side
+    attributes:
+      label: Which side is your prep for?
+      options: ["Pro", "Con", "Both"]
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What do you want the simulation to test?
+      description: "e.g. 'is my C2 solvency real', 'find the strongest turn against my Pro', 'which contention survives'"
+    validations:
+      required: true
+  - type: textarea
+    id: prep
+    attributes:
+      label: Your prep
+      description: "Paste your case/blocks here, OR drag-and-drop files into this box to attach them (remember: public). If your prep is live/private, write 'private files' and leave the reviewer a way to reach you."
+    validations:
+      required: true
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Consent
+      options:
+        - label: "I understand this issue is public and I've only shared what I'm OK being visible."
+          required: true
+        - label: "The maintainer may publish the simulation RESULTS (ballots, findings) on the site, crediting my handle if given."
+          required: false

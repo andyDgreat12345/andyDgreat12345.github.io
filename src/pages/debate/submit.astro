@@ -1,0 +1,89 @@
+---
+import Base from '../../layouts/Base.astro';
+
+const base = import.meta.env.BASE_URL;
+const path = (p: string) => `${base}${p}`.replace(/\/{2,}/g, '/');
+
+const REPO = 'andyDgreat12345/andyDgreat12345.github.io';
+const submitUrl = `https://github.com/${REPO}/issues/new?template=prep-submission.yml`;
+
+const steps = [
+  ['You submit', 'Open a request (topic, side, what you want tested) via a GitHub issue. Attach prep only if you’re OK with it being public — otherwise arrange private transfer.'],
+  ['I review', 'I read every request and decide whether to run it. Submitting doesn’t guarantee a run — I run what I can genuinely help with.'],
+  ['The system runs it', 'Two AI teams with different philosophies prep in isolation and debate a full round; a three-judge panel scores it; the system extracts what survived and what broke.'],
+  ['Results are published', 'The ballots, the strongest arguments, and the weaknesses found go back here on the site — transparent, so anyone can learn from them (crediting you if you want).'],
+];
+---
+
+<Base title="Submit your prep" description="Submit a debate case to be stress-tested by the simulation system.">
+  <section class="hero" style="padding-bottom:8px">
+    <a class="small" href={path('debate')}>&larr; Debate</a>
+    <h1>Submit your prep for a round</h1>
+    <p class="lead">
+      Have a case you want stress-tested? Submit it and I’ll decide whether to run it
+      through the simulation — two AI teams debate it, a judge panel scores it, and the
+      results come back public so everyone learns.
+    </p>
+  </section>
+
+  <div class="section-head"><h2>What happens to your submission</h2></div>
+  <ol class="flow">
+    {steps.map(([t, d], i) => (
+      <li>
+        <span class="fnum">{i + 1}</span>
+        <div><strong>{t}.</strong> {d}</div>
+      </li>
+    ))}
+  </ol>
+
+  <div class="callout">
+    <strong>Read this first — the issue is public.</strong>
+    <p class="small muted" style="margin:.4em 0 0">
+      Submissions open a GitHub issue that anyone can read, including people you debate.
+      Attach prep files only if it’s a past topic or prep you actively want tested in
+      the open. For <em>live competitive prep</em>, submit the request without files and
+      write “private files” — I’ll arrange a private way to receive them. Publishing
+      your live case would just hand it to your opponents, and I won’t do that.
+    </p>
+  </div>
+
+  <div class="links-row" style="margin:22px 0">
+    <a class="btn primary" href={submitUrl} target="_blank" rel="noopener">Submit via GitHub &nearr;</a>
+    <a class="btn" href={path('debate/the-method')}>See how the system works first</a>
+  </div>
+
+  <div class="section-head"><h2>Full transparency</h2></div>
+  <p class="muted">
+    Nothing about the method is hidden. The exact standards the agents follow — how a
+    case is structured, how evidence is cut, how each speech must win, how the reasoning
+    and wording are held to a bar — are all written down and public:
+  </p>
+  <ul>
+    <li><a href={path('debate/the-method')}>How the system writes a case</a> — the four standards</li>
+    <li><a href={path('debate/overview')}>The system overview</a> — the full pipeline and the self-improving loop</li>
+    <li><a href={path('debate/accumulation')}>A worked example</a> — two rounds on a test topic, and what changed between them</li>
+  </ul>
+  <p class="small muted">
+    A GitHub account is needed to submit (it’s how the request reaches me). No account?
+    The request form lists other ways to reach out.
+  </p>
+</Base>
+
+<style>
+  .flow { list-style: none; padding: 0; margin: 18px 0; display: grid; gap: 12px; }
+  .flow li {
+    display: flex; gap: 14px; align-items: flex-start;
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; background: var(--card);
+  }
+  .fnum {
+    flex: none; width: 26px; height: 26px; border-radius: 999px;
+    display: grid; place-items: center; font-weight: 700; font-size: .85rem;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .callout {
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    background: var(--accent-soft);
+    border-radius: 12px; padding: 14px 16px; margin: 20px 0;
+  }
+</style>
