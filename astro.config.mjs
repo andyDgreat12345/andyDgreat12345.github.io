@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import sitemap from '@astrojs/sitemap';
 
 // For GitHub Pages.
 // - If your repo is named `<username>.github.io`, keep `base` as '/'.
@@ -8,4 +9,6 @@ import { defineConfig } from 'astro/config';
 export default defineConfig({
   site: 'https://andydgreat12345.github.io',
   base: '/',
+  // Generates sitemap-index.xml so search engines can discover every page.
+  integrations: [sitemap()],
 });
