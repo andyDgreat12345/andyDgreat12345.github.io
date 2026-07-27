@@ -1,0 +1,24 @@
+---
+import Base from '../../layouts/Base.astro';
+import Globe from '../../components/Globe.astro';
+
+const base = import.meta.env.BASE_URL;
+const path = (p: string) => `${base}${p}`.replace(/\/{2,}/g, '/');
+---
+
+<Base title="3D Earth" description="An interactive 3D globe built with Three.js by Andy Sun.">
+  <section class="hero" style="padding-bottom:16px">
+    <p class="eyebrow">Three.js · WebGL</p>
+    <h1>3D Earth.</h1>
+    <p class="lead">A wireframe globe rendered in real time. Drag to spin it.</p>
+  </section>
+
+  <div style="max-width:520px; margin: 8px auto 8px;">
+    <Globe interactive={true} />
+  </div>
+  <p class="muted small" style="text-align:center; font-family:var(--mono); letter-spacing:.08em; text-transform:uppercase;">
+    Drag to rotate
+  </p>
+
+  <p style="margin-top:32px;"><a href={path('projects')}>← Back to projects</a></p>
+</Base>

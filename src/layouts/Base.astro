@@ -40,7 +40,15 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
       <slot />
     </main>
     <footer class="site-footer">
-      <div class="wrap">© {year} · Built with Astro</div>
+      <div class="wrap">
+        <div class="foot-name">Andy Sun</div>
+        <div>Student · debater · builder.</div>
+        <div class="foot-links">
+          <a href="https://github.com/andyDgreat12345" target="_blank" rel="noopener">GitHub</a>
+          <a href="mailto:ryanasdspi@gmail.com">Email</a>
+        </div>
+        <div style="margin-top:18px; opacity:.7;">© {year}</div>
+      </div>
     </footer>
   </body>
 </html>

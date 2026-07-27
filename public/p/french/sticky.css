@@ -1,0 +1,47 @@
+.banner-img
+{
+    width: 100%;
+    height: auto;
+    display: block;
+}
+html
+{
+    overflow-y: scroll;
+}
+body
+{
+    margin: 0;
+    font-family: verdana;
+}
+
+ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #acacac;
+    position: sticky;
+    top: 0;
+}
+li{
+    float: left;
+}
+li a{
+    display: block;
+    color: #000;
+    text-align: center;
+    padding: .5rem .6rem;
+    text-decoration: none;
+}
+li a:hover:not(.active){
+    background: #cacaca;
+}
+
+
+@media (max-width: 660px){
+    ul.navbar li
+    {
+        float: none;
+        margin: auto;
+    };
+}

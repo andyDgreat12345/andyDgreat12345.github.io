@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Currency Converter</title>
+    <meta name="keywords" content=" Fortnight, Apex Legends, CSGO">
+    <meta charset="UTF-8">
+    <style>
+        body {
+            background-image: url('trump.webp');
+            background-repeat: no-repeat;
+            background-size: cover; /* Changed to cover for better mobile responsiveness */
+        }
+
+        .title {
+            text-align: center;
+            font-family: cursive;
+        }
+
+        .wrapper {
+
+            width: 500px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.5);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.1);
+            height: 500px;
+
+        }
+
+        #userNum {
+            border: 0;
+            border-radius: 5px;
+            color: #888;
+            background: #EEE;
+            width: 160px;
+            padding: 5px;
+
+        }
+
+        .returnArea {
+            border: 0;
+            border-radius: 5px;
+            color: #888;
+            background: #EEE;
+            max-width: 160px;
+            /* Fixed width added */
+            overflow: hidden;
+            padding: 5px;
+            height: 10px;
+
+            font-size: 10px;
+            height: 40px;
+            font-size: 16px; /* Increased font size for better readability */
+        }
+
+        #button {
+            border: 0;
+            border-radius: 5px;
+            color: #FFF;
+            background: #00ccff;
+            width: 100%;
+            height: 60px;
+            margin-top: 10px;
+            box-shadow: 0px 0px 10px #AAA;
+        }
+
+        #button:hover {
+            background: #10df10;
+            cursor: pointer;
+        }
+
+        #button:active {
+            background: #00ffe1;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                background-size: 100% 100%; /* Adjust background size for smaller devices */
+            }
+        }
+
+    </style>
+</head>
+
+<body>
+    <h1 class="title">Currency Converter</h1>
+    <div class="wrapper">
+        <div>Please input amount: <input type="number" id="userNum" placeholder="Enter Amount"> <select
+                id="currencySelect">
+                <option value="RMB">RMB</option>
+                <option value="USD">USD</option>
+                <option value="GBP">GBP</option>
+
+            </select></div>
+        <div style="margin-top: 5px;">Return input amount: <span class="returnArea" id="returnArea">Return Area</span>
+            <select id="currencyOut">
+                <option value="RMB">RMB</option>
+                <option value="USD">USD</option>
+                <option value="GBP">GBP</option>
+
+            </select>
+        </div>
+        <input type="button" value="Convert" onclick="calcCurrency()" id="button">
+    </div>
+</body>
+<script>
+    function calcCurrency() {
+        var amount = document.getElementById("userNum").valueAsNumber;
+        var currencySelect = document.getElementById("currencySelect").value;
+        var currencyOut = document.getElementById("currencyOut").value;
+        var result = 0;
+        var currencySign = '';
+
+        switch (currencySelect + currencyOut) {
+            case 'USDRMB':
+                result = amount * 7.21;
+                currencySign = '¥';
+                break;
+            case 'USDGBP':
+                result = amount * 0.8;
+                currencySign = '£';
+                break;
+            case 'RMBUSD':
+                result = amount * 0.14;
+                currencySign = '$';
+                break;
+            case 'RMBGBP':
+                result = amount * 0.11;
+                currencySign = '£';
+                break;
+            case 'GBPUSD':
+                result = amount * 1.25;
+                currencySign = '$';
+                break;
+            case 'GBPRMB':
+                result = amount * 9.01;
+                currencySign = '¥';
+                break;
+            case 'RMBRMB':
+                result = amount;
+                currencySign = '¥';
+                break;
+            case 'GBPGBP':
+                result = amount;
+                currencySign = '£';
+                break;
+            case 'USDUSD':
+                result = amount;
+                currencySign = '$';
+                break;
+
+
+            
+        }
+        document.getElementById("returnArea").innerHTML = result.toFixed(2) + currencySign;
+    }
+</script>
+
+</html>

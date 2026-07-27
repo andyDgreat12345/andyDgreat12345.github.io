@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Currency Converter</title>
+        <meta name="keywords" content = "Mr. Davison, Cringe, Among Us, Minecraft, Roblox, Poki.com, ChatGPT, OpenAI, Google, Fortnight, Apex Legends, CSGO, PUBG, TF2, take one or double it and give it to the next person, Call of Duty, COD, Soul Knight, clash royale">
+        <meta charset="UTF-8">
+    </head>
+    <body>
+        <h1>Currency Converter</h1>
+        <div>Please Select your desired currency:</div>
+        <select id="currencySelect">
+            <option value = "RMB">RMB</option>
+            <option value = "USD">USD</option>
+            <option value = "GBP">GBP</option>
+        </select>
+        <div>Please enter your amount:</div>
+        <input type = "number" id="userNum" placeholder = "Enter Amount">
+        <input type="button" value="Convert" onclick="calcCurrency()">
+        <div id="convertAmount">Return Area</div>
+    </body>
+    <script>
+        function calcCurrency()
+        {
+            convertAmount = userNum.valueAsNumber;
+            currencyOption = currencySelect.value;
+            switch(currencyOption)
+            {
+                case 'RMB':
+                    currencyTotal = convertAmount * 7.21;
+                    break;
+                case 'GBP':
+                    currencyTotal = convertAmount * .8;
+                    break;
+                default:
+                    currencyTotal = convertAmount * 1;
+            }
+            document.getElementById("convertAmount").innerHTML = currencyTotal.toFixed(2);
+        }
+    </script>
+</html>

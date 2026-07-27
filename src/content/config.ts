@@ -9,10 +9,13 @@ const projects = defineCollection({
     // Lower order number shows first (1, 2, 3, ...)
     order: z.number().default(999),
     date: z.coerce.date().optional(),
+    period: z.string().optional(),          // e.g. "2024" or "2022–present"
     // Links
     repo: z.string().url().optional(),      // GitHub repo URL
-    website: z.string().url().optional(),   // attached live site
+    website: z.string().url().optional(),   // attached live site (external)
+    demo: z.string().optional(),            // internal live demo path, e.g. "p/mun/"
     // Presentation
+    image: z.string().optional(),           // path under /public, e.g. "images/projects/x.png"
     tags: z.array(z.string()).default([]),
     featured: z.boolean().default(false),
   }),

@@ -1,34 +1,20 @@
 ---
 import Base from '../layouts/Base.astro';
+import ProjectBlock from '../components/ProjectBlock.astro';
 import { getCollection } from 'astro:content';
 
-const projects = (await getCollection('projects'))
-  .sort((a, b) => a.data.order - b.data.order);
-
-const fmt = (d?: Date) => d ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
+const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
 ---
 
-<Base title="Projects">
+<Base title="Projects" description="Projects by Andy Sun — hardware, 3D graphics, and the web.">
   <section class="hero" style="padding-bottom:8px">
-    <h1>Projects</h1>
-    <p class="lead">Things I've built — GitHub repos and their live sites.</p>
+    <p class="eyebrow">Projects</p>
+    <h1>Things I've built.</h1>
+    <p class="lead">Hardware, 3D graphics, and a decade of tinkering on the web.</p>
   </section>
 
-  <div class="grid">
-    {projects.map((p) => (
-      <article class="card">
-        <h3>{p.data.title}</h3>
-        {p.data.date && <div class="meta">{fmt(p.data.date)}</div>}
-        <p>{p.data.summary}</p>
-        {p.data.tags.length > 0 && (
-          <div class="tags">{p.data.tags.map((t) => <span class="tag">{t}</span>)}</div>
-        )}
-        <div class="card-links">
-          {p.data.repo && <a href={p.data.repo} target="_blank" rel="noopener">Code ↗</a>}
-          {p.data.website && <a href={p.data.website} target="_blank" rel="noopener">Live site ↗</a>}
-        </div>
-      </article>
-    ))}
-    {projects.length === 0 && <p class="muted">No projects yet — add a Markdown file to <code>src/content/projects/</code>.</p>}
+  <div class="projects-list">
+    {projects.map((p, i) => <ProjectBlock project={p} idx={i + 1} />)}
+    {projects.length === 0 && <p class="muted">No projects yet.</p>}
   </div>
 </Base>

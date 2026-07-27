@@ -1,0 +1,46 @@
+---
+import Globe from './Globe.astro';
+
+interface Props {
+  project: any;
+  idx: number;
+}
+const { project, idx } = Astro.props;
+const d = project.data;
+
+const base = import.meta.env.BASE_URL;
+const path = (p: string) => `${base}${p}`.replace(/\/{2,}/g, '/');
+
+const isGlobe = d.demo === 'p/earth/';
+const num = String(idx).padStart(2, '0');
+---
+
+<article class="project-block">
+  <div class="p-media">
+    {isGlobe ? (
+      <Globe />
+    ) : d.image ? (
+      <img src={path(d.image)} alt={`${d.title} preview`} loading="lazy" />
+    ) : (
+      <div class="media-frame media-fallback">
+        <span class="mf-label">Selected work</span>
+        <span class="mf-list">quizzes · animations · mini-games · UI toys</span>
+      </div>
+    )}
+  </div>
+
+  <div class="p-body">
+    <div class="p-idx">{num} —</div>
+    <h3>{d.title}</h3>
+    <div class="meta">{d.period}</div>
+    <p>{d.summary}</p>
+    {d.tags.length > 0 && (
+      <div class="tags">{d.tags.map((t: string) => <span class="tag">{t}</span>)}</div>
+    )}
+    <div class="card-links">
+      {d.demo && <a href={path(d.demo)}>Live demo →</a>}
+      {d.website && <a href={d.website} target="_blank" rel="noopener">Live site ↗</a>}
+      {d.repo && <a href={d.repo} target="_blank" rel="noopener">Code ↗</a>}
+    </div>
+  </div>
+</article>

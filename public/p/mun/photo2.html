@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://biszweb.club/cwd.png">
+    <title>BISZ MUN CLUBSITE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 1rem;
+            display: flex;
+            flex-direction: column;
+            perspective: 1000px;
+
+            background-color: #f0f0f0;
+
+            overflow-y: scroll;
+			overflow-x: hidden;
+        }
+
+        .banner {
+            background-color: #dbdbdb;
+            color: #fff;
+            padding: 3rem;
+            display: flex;
+			align-items: center;    
+            text-align: center;
+            justify-content: center;
+            
+        }
+        #logo {
+            width: 15%;
+            transition: transform 0.5s;
+            
+        }
+
+        #logo:hover {
+            transform: rotateY(180deg);
+            
+        }
+
+        #banner-text {
+            font-weight: bold;
+            color: #325ae4;
+            text-shadow: 1px 1px 2px black;
+            
+            font-size: 3rem;
+            
+        }
+
+
+        .menu {
+            list-style-type: none;
+            background-color: #333;
+            margin: 0;
+            padding: 0;
+         
+            top: 0;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .asidecontent{
+            list-style-type: none;
+            background-color: #c8d1ec;  
+            margin: 0;
+            padding: .5rem;
+         
+            top: 0;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .asidecontent p
+        {
+            margin-top: 5px;
+        }
+
+        li {
+            float: left;
+        }
+
+        li a {
+            text-decoration: none;
+            color: #fff;
+            padding: .5rem 1rem;
+            display: block;
+            transition: background-color 0.3s;
+            
+        }
+
+        li a:hover {
+            background-color: #ffffff;
+            transform: scale(1.1);
+            
+        }
+
+        .wrapper {
+            display: flex;
+            flex-direction: row;
+        }
+
+        #aside {
+            background-color: #ffffff;
+        
+            padding: 2rem;
+            width: 20%;
+    
+            top: 0;
+
+            border-right: 3px solid #325ae4;
+          
+            box-shadow: 5px 0 15px rgba(0, 0, 0, 0.2);
+            
+            font-size: 1.1rem;
+            align-items: center ;
+        
+        }
+
+        #aside:hover {
+            width: 25%;
+   
+            background-color: #f0f8ff;
+
+        }
+
+        #main {
+            padding: 1rem;
+            width: 80%;
+        }
+
+        .slider img {
+            width: 100%;
+            height: auto;
+
+        }
+
+
+        .footer {
+            background-color: #333;
+            color: white;
+            text-align: center;
+            padding: 1rem;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+        }
+
+        
+
+        .footer a {
+            color: white;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+            color: #ccc;
+
+        }
+
+        .content-section {
+            margin: 1rem;
+            padding: 1rem;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .content-section h2 {
+            color: #325ae4;
+        }
+
+        .content-section p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .event {
+            margin: 1rem 0;
+            padding: 1rem;
+            background-color: white;
+            border-left: 5px solid #325ae4;
+        }
+
+        .event h3 {
+            margin-top: 0;
+        }
+
+        .event p {
+            margin-bottom: 0.5rem;
+        }
+
+        .event-date {
+            font-size: 0.85rem;
+            color: #888;
+        }
+
+        #footer {
+            background-color: #333;
+            color: white;
+            text-align: center;
+            padding: 1rem;
+            position: relative;
+            bottom: 0;
+            width: 100%;
+        }
+
+        @media screen and (max-width:600px) {
+            .wrapper {
+                flex-direction: column;
+            }
+            .menu {
+                width: 100%;
+                height: auto;
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+            }
+
+            #aside,
+            ul li {
+                position: relative;
+                width: 100%;
+            }
+
+            ul li {
+                text-align: center;
+            }
+
+            #main {
+                margin: 0;
+                width: 100%;
+            }
+
+            li {
+                display: block;
+            }
+
+            #aside {
+                z-index: -1;
+                transition: 1000000000s ease;
+            }
+
+            #footer {
+                position: sticky;
+                bottom: 0;
+            }
+            #logo {
+                width: 100%;
+            }
+
+        }
+
+        #aside h3 {
+            color: #325ae4;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        #aside ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        #aside li {
+            padding: 0.5rem 0;
+        }
+
+        #aside a {
+            text-decoration: none;
+            color: #000;
+
+        }
+
+        #aside a:hover {
+            color: #325ae4;
+        }
+    </style>
+    <script>
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const logo = document.getElementById('logo');
+            logo.addEventListener('click', function () {
+                alert('Welcome to BASIS International School Coding and Web Design!');
+            });
+        });
+    </script>
+</head>
+
+<body>
+
+    <div class="banner" >
+
+
+        <div id="banner-text">Past Conferences</div>
+    </div>
+    <ul class="menu">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="join.html">Join Us</a></li>
+        <li><a href="aboutus.html">About Us</a></li>
+
+        <li><a href="participants.html">Participants</a></li>
+    </ul>
+    <div class="wrapper">
+        <div id="aside">
+            <h3>Hello!</h3>
+            <div class="asidecontent">
+                <p>We have photos from our past tournaments.</p>
+            </div>
+
+        </div>
+
+        <div id="main">
+            <div class="slider">
+            	<img src="images/pew1.jpeg" alt="Slide 1" class="slide" style="display: block;">
+            	<img src="images/pew2.jpeg" alt="Slide 2" class="slide" style="display: none;">
+            	<img src="images/pew3.jpeg" alt="Slide 3" class="slide" style="display: none;">
+                <img src="images/pew4.jpeg" alt="Slide 4" class="slide" style="display: none;">
+                <img src="images/pew5.jpeg" alt="Slide 5" class="slide" style="display: none;">
+                <img src="images/pew6.jpeg" alt="Slide 6" class="slide" style="display: none;">
+                <img src="images/pew7.jpeg" alt="Slide 7" class="slide" style="display: none;">
+                <img src="images/pew8.jpeg" alt="Slide 8" class="slide" style="display: none;">
+                <img src="images/pew9.jpeg" alt="Slide 9" class="slide" style="display: none;">
+                <img src="images/pew10.jpeg" alt="Slide 10" class="slide" style="display: none;">
+
+            </div>
+            <div class="content-section">
+                <h2>These are photos from our past tournaments.</h2>
+                <p>Explore through pictures.
+                </p>
+            </div>
+
+
+        </div>
+
+
+        <script>
+
+        </script>
+
+    </div>
+    <script src="main.js"></script>
+    
+    <div id="footer">
+        <div>BISZ Coding and Web Design | Andy Sun</div>
+        <div>
+            <a href="index.html">Home</a>
+            <a href="join.html">Join Us</a>
+            <a href="aboutus.html">About Us</a>
+            <a href="participants.html">Participants</a>
+        </div>
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () { let isMobile = window.matchMedia("(max-width: 767px)").matches; function checkViewport() { const currentIsMobile = window.matchMedia("(max-width: 600px)").matches; if (currentIsMobile !== isMobile) { location.reload(); } } window.addEventListener("resize", checkViewport); });    
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,99 @@
+---
+interface Props {
+  interactive?: boolean;
+}
+const { interactive = false } = Astro.props;
+---
+
+<div class="globe" data-interactive={interactive ? 'true' : 'false'}></div>
+
+<script>
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  function cssVar(name: string, fallback: string) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  function initGlobe(el: HTMLElement) {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const interactive = el.dataset.interactive === 'true';
+
+    const lineColor = new THREE.Color(cssVar('--text-soft', '#6c675d'));
+    const dotColor = new THREE.Color(cssVar('--accent', '#d8452a'));
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    camera.position.set(0, 0, 3.1);
+
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 0);
+    el.appendChild(renderer.domElement);
+
+    const group = new THREE.Group();
+    group.rotation.x = 0.42;
+    scene.add(group);
+
+    // Wireframe sphere
+    const wire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(new THREE.SphereGeometry(1, 30, 20)),
+      new THREE.LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.32 })
+    );
+    group.add(wire);
+
+    // Point field on the surface
+    const N = 340;
+    const positions = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      // even-ish distribution on a sphere
+      const u = Math.random(), v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      const r = 1.006;
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = r * Math.cos(phi);
+    }
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const points = new THREE.Points(
+      pGeo,
+      new THREE.PointsMaterial({ color: dotColor, size: 0.032, sizeAttenuation: true })
+    );
+    group.add(points);
+
+    let controls: OrbitControls | null = null;
+    if (interactive) {
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableZoom = false;
+      controls.enablePan = false;
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.autoRotate = !reduced;
+      controls.autoRotateSpeed = 0.9;
+      renderer.domElement.addEventListener('pointerdown', () => el.classList.add('dragging'));
+      window.addEventListener('pointerup', () => el.classList.remove('dragging'));
+    }
+
+    function resize() {
+      const s = el.clientWidth || 320;
+      renderer.setSize(s, s, false);
+      camera.aspect = 1;
+      camera.updateProjectionMatrix();
+    }
+    resize();
+    new ResizeObserver(resize).observe(el);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (controls) controls.update();
+      else if (!reduced) group.rotation.y += 0.0018;
+      renderer.render(scene, camera);
+    }
+    animate();
+  }
+
+  document.querySelectorAll<HTMLElement>('.globe').forEach(initGlobe);
+</script>
