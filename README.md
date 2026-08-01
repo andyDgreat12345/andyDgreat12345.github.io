@@ -1,34 +1,20 @@
-# Personal Website
+# Andy Sun
 
-A personal site to track projects and achievements. Built with [Astro](https://astro.build), deploys as a static site to GitHub Pages.
+Student, Public Forum debater, and builder. This is my personal website — a running record of the things I make and the work I'm proud of.
 
-## Run locally
+**🌐 [andydgreat12345.github.io](https://andydgreat12345.github.io)**
 
-```bash
-npm install      # first time only
-npm run dev      # start dev server → http://localhost:4321
-```
+## What's here
 
-## Add content
+- **[Projects](https://andydgreat12345.github.io/projects)** — hardware, 3D graphics, and things for the web, including:
+  - **Fire Mask** — a smart fire-safety mask built at an MIT hackathon (ESP32 + sensors streaming live status over MQTT to a companion Android app).
+  - **3D Earth** — an interactive globe rendered in the browser with Three.js and WebGL.
+  - **MUN & French club sites** — multi-page sites I built for my school clubs.
+  - **Web Design** — a collection of small web experiments I've made since 8th grade.
+- **[Debate](https://andydgreat12345.github.io/debate)** — a self-improving AI system for competitive debate prep: it researches a resolution, writes both sides, debates itself under a panel of judges, and rewrites its own prep from what it learns. The method and results are public; live prep stays private.
+- **[About](https://andydgreat12345.github.io/about)** — a bit more about me and how to get in touch.
 
-- **A project:** copy any file in `src/content/projects/` and edit the fields at the top (`title`, `summary`, `repo`, `website`, `tags`, `featured`).
-- **An achievement:** copy any file in `src/content/achievements/`.
-- **Your identity / links:** edit the constants at the top of `src/pages/index.astro`.
-- **About page:** edit `src/pages/about.astro`.
+## Get in touch
 
-Files are auto-picked-up — no code changes needed to add entries.
-
-## Build
-
-```bash
-npm run build    # outputs static site to ./dist
-npm run preview  # preview the production build
-```
-
-## Deploy to GitHub Pages
-
-1. Create a GitHub repo and push this folder.
-2. If the repo is **not** named `<username>.github.io`, set `base: '/<repo-name>'`
-   in `astro.config.mjs`.
-3. Add the GitHub Actions workflow (see project setup notes) and enable Pages
-   under repo Settings → Pages → Source: GitHub Actions.
+- **Email:** suntianyi2009@outlook.com
+- **GitHub:** [@andyDgreat12345](https://github.com/andyDgreat12345)
