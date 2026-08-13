@@ -1,0 +1,52 @@
+# The company worker. Copy to /etc/systemd/system/ on the always-on box, then:
+#   sudo systemctl enable --now company-worker
+#
+# Secrets go in /etc/company/worker.env (chmod 600, root-owned), never in this
+# file and never in the repo — see CHARTER.md on the data policy:
+#
+#   COMPANY_REPO=andyDgreat12345/andyDgreat12345.github.io
+#   GITHUB_TOKEN=...
+#   TEMPORAL_ADDRESS=<namespace>.<account>.tmprl.cloud:7233
+#   TEMPORAL_NAMESPACE=<namespace>.<account>
+#   TEMPORAL_API_KEY=...
+
+[Unit]
+Description=Company HQ Temporal worker
+Documentation=https://github.com/andyDgreat12345/andyDgreat12345.github.io/blob/main/company/temporal/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=company
+Group=company
+WorkingDirectory=/opt/company
+EnvironmentFile=/etc/company/worker.env
+ExecStart=/opt/company/.venv/bin/python company/temporal/worker.py
+
+# The worker is stateless — Temporal holds the state — so restarting it is always
+# safe and a run in flight is picked up by whichever worker comes back.
+Restart=always
+RestartSec=5s
+
+# Don't let a crash loop hammer the API; give up and alert instead. The watchdog
+# in .github/workflows/company-watchdog.yml notices the missing heartbeats.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# The worker needs the network and its own directory. Nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/company
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=company-worker
+
+[Install]
+WantedBy=multi-user.target

@@ -20,7 +20,9 @@ ground truth. You hold the keys that matter.
 | [`STACK.md`](STACK.md) | The funded version: durable execution, sandboxes, evals, memory — what to buy and in what order |
 | [`ROLLOUT.md`](ROLLOUT.md) | 90-day plan, real costs, and the failure modes that kill setups like this |
 | [`roles/`](roles/) | One job description per role — these are literal agent system prompts |
-| [`ops/dispatch.py`](ops/dispatch.py) | The dispatcher: reads the queue, routes tickets, has no opinions |
+| [`ops/board.py`](ops/board.py) | Every routing decision, as pure logic. Change how work is routed here and nowhere else |
+| [`ops/dispatch.py`](ops/dispatch.py) | The Tier 0 dispatcher: reads the queue, routes tickets, has no opinions, no dependencies |
+| [`temporal/`](temporal/) | The same heartbeat as a durable workflow — step 1 of `STACK.md`, and the one to run in production |
 
 ## The one-paragraph version
 

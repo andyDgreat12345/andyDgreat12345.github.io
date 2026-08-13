@@ -259,8 +259,10 @@ worth more than every line item above.
 Do not build layers in parallel. Each step should be running in production before
 the next starts.
 
-1. **Durable execution.** Move the heartbeat and one real role off cron onto
-   Temporal. You will immediately stop losing half-finished runs.
+1. **Durable execution — built.** The heartbeat now runs as a Temporal workflow;
+   see [`temporal/README.md`](temporal/README.md) for how to run it, and note the
+   `board.py` split that keeps the cron path and the durable path from drifting.
+   Still to do here: move one real *role* across once the fan-out exists.
 2. **Sandboxes.** Every agent-authored line of code executes in E2B, never on a
    machine that matters.
 3. **Gateway with per-role budget caps.** The Controller role becomes a config
