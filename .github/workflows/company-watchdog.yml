@@ -1,0 +1,79 @@
+name: Company watchdog
+
+# Alerts on ABSENCE, which is the failure mode that actually kills unattended
+# systems. A red workflow run is loud and someone notices; a cron that quietly
+# stopped firing in July is invisible until September unless something is looking
+# for it. This looks for it.
+#
+# Opens at most one issue per outage, and only reopens after a recovery.
+# Scheduled runs only fire from the default branch — merge before relying on it.
+
+on:
+  schedule:
+    - cron: "20 * * * *"   # hourly, offset off the hour so it never races the heartbeat
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Did the heartbeat run in the last 90 minutes?
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          from datetime import datetime, timedelta, timezone
+
+          repo, token = os.environ["REPO"], os.environ["GITHUB_TOKEN"]
+
+          def api(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body else None
+              req = urllib.request.Request(
+                  f"https://api.github.com{path}", data=data, method=method)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              if data:
+                  req.add_header("Content-Type", "application/json")
+              with urllib.request.urlopen(req) as r:
+                  raw = r.read()
+              return json.loads(raw) if raw else None
+
+          runs = api(f"/repos/{repo}/actions/workflows/company-heartbeat.yml/runs?per_page=1")
+          latest = (runs or {}).get("workflow_runs") or []
+          cutoff = datetime.now(timezone.utc) - timedelta(minutes=90)
+
+          if latest:
+              when = datetime.fromisoformat(latest[0]["created_at"].replace("Z", "+00:00"))
+              if when > cutoff:
+                  print(f"OK — heartbeat last ran {when.isoformat()}")
+                  raise SystemExit(0)
+              detail = f"Last heartbeat: {when.isoformat()} (over 90 minutes ago)."
+          else:
+              detail = "No heartbeat runs found at all."
+
+          # One issue per outage: if an alert is already open, stay quiet.
+          title = "Watchdog: heartbeat is not running"
+          q = urllib.parse.quote(f'repo:{repo} is:issue is:open in:title "{title}"')
+          existing = api(f"/search/issues?q={q}") or {}
+          if any(i["title"] == title for i in existing.get("items", [])):
+              print("Alert already open — not duplicating.")
+              raise SystemExit(0)
+
+          api(f"/repos/{repo}/issues", "POST", {
+              "title": title,
+              "body": (f"{detail}\n\nThe company clock has stopped, so no tickets are "
+                       "being routed.\n\nCheck: is `COMPANY_PAUSED` set? Were scheduled "
+                       "workflows disabled for inactivity? Is the workflow on the "
+                       "default branch?\n\nSee `company/roles/04-sre.md`."),
+              "labels": ["dept:hq", "needs:human", "risk:high"],
+          })
+          print("Opened watchdog alert.")
+          PY

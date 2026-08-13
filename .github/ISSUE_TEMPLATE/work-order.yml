@@ -1,0 +1,78 @@
+name: Work order
+description: File a ticket for the company to pick up
+title: "[work] "
+labels: ["status:inbox"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is how work enters the company. The dispatcher reads this every 15
+        minutes. Fill in what you know — the analyst writes the spec, so a rough
+        ticket is fine. An empty one is not.
+
+  - type: dropdown
+    id: dept
+    attributes:
+      label: Department
+      description: Which product line does this belong to?
+      options:
+        - "dept:site — personal site / front office"
+        - "dept:casewriter — AI case writer tool"
+        - "dept:market — Chinese stocks model"
+        - "dept:admissions — college acceptance model"
+        - "dept:hq — the company itself"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What needs to happen
+      description: The outcome you want, not the implementation. Who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: How we will know it is done
+      description: >
+        Checkable statements, if you already know them. Leave blank and the
+        analyst will write them. Anything not verifiable will be sent back.
+      placeholder: |
+        - [ ] The dashboard page lists every open ticket by stage
+        - [ ] It rebuilds on every heartbeat
+      value: |
+        - [ ]
+
+  - type: dropdown
+    id: data
+    attributes:
+      label: Data class
+      description: >
+        Does this touch information about a real, identifiable person? If you are
+        unsure, choose personal — the escalation is free and the leak is not.
+      options:
+        - "personal — real people's data; first-party models only"
+        - "public — public sources, public code, synthetic data"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - "risk:low — reversible, invisible to users"
+        - "risk:med — user-visible or hard to undo"
+        - "risk:high — money, credentials, personal data, or public announcement"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Before filing
+      options:
+        - label: This is one piece of work, not three. Multiple asks get split anyway.
+          required: true

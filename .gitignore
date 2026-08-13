@@ -12,3 +12,7 @@ npm-debug.log*
 # os / editor
 .DS_Store
 Thumbs.db
+
+# Python bytecode from company/ops scripts
+__pycache__/
+*.pyc

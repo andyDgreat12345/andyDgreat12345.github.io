@@ -1,0 +1,63 @@
+name: Company heartbeat
+
+# The company's clock. Every 15 minutes it reads the board, triages new tickets,
+# decides who should be working on what, and logs the decision to the day's shift
+# report issue. It starts no work by itself — it emits a plan. Wiring the plan to
+# real workers is step 6 in company/ROLLOUT.md.
+#
+# NOTE: scheduled workflows only fire from the repository's DEFAULT branch. This
+# will not run on the feature branch — merge it first, then use the manual
+# `workflow_dispatch` run below to check it before trusting the schedule.
+#
+# THE KILL SWITCH: set the repository variable COMPANY_PAUSED to 1
+# (Settings → Secrets and variables → Actions → Variables) and the dispatcher
+# reports but starts nothing. That page works fine on an iPad.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Write labels and post the heartbeat comment"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write        # triage labels + the shift report
+  pull-requests: read  # WIP limit needs the count of PRs in review
+
+concurrency:
+  group: company-heartbeat
+  cancel-in-progress: false   # never kill a run mid-triage
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    outputs:
+      plan: ${{ steps.dispatch.outputs.plan }}
+      paused: ${{ steps.dispatch.outputs.paused }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: dispatch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPANY_PAUSED: ${{ vars.COMPANY_PAUSED }}
+        run: |
+          python3 company/ops/dispatch.py \
+            ${{ (github.event_name == 'schedule' || inputs.apply) && '--apply' || '' }} \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Placeholder for the worker fan-out. Once you have wired a role runner, this
+  # becomes a matrix over fromJSON(needs.dispatch.outputs.plan) — one job per
+  # ticket, each starting the role named in the plan at the tier named in the
+  # plan. Kept inert until then so a half-built company cannot spend money.
+  workers:
+    needs: dispatch
+    if: needs.dispatch.outputs.paused == 'false' && needs.dispatch.outputs.plan != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show the routing plan
+        run: echo '${{ needs.dispatch.outputs.plan }}' | python3 -m json.tool
