@@ -23,6 +23,7 @@ ground truth. You hold the keys that matter.
 | [`ops/board.py`](ops/board.py) | Every routing decision, as pure logic. Change how work is routed here and nowhere else |
 | [`ops/dispatch.py`](ops/dispatch.py) | The Tier 0 dispatcher: reads the queue, routes tickets, has no opinions, no dependencies |
 | [`temporal/`](temporal/) | The same heartbeat as a durable workflow — step 1 of `STACK.md`, and the one to run in production |
+| [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md) | Where the worker actually lives, what it costs, the token scopes, and what to do when it breaks |
 
 ## The one-paragraph version
 
