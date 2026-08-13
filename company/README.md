@@ -17,6 +17,7 @@ ground truth. You hold the keys that matter.
 | [`ORG.md`](ORG.md) | The org chart, the ticket lifecycle, and the gates between stages |
 | [`MODELS.md`](MODELS.md) | Which of Claude Code / Codex / DeepSeek / local models does which job |
 | [`INFRA.md`](INFRA.md) | Where to physically build it, how it stays up 24/7, how you drive it from an iPad |
+| [`STACK.md`](STACK.md) | The funded version: durable execution, sandboxes, evals, memory — what to buy and in what order |
 | [`ROLLOUT.md`](ROLLOUT.md) | 90-day plan, real costs, and the failure modes that kill setups like this |
 | [`roles/`](roles/) | One job description per role — these are literal agent system prompts |
 | [`ops/dispatch.py`](ops/dispatch.py) | The dispatcher: reads the queue, routes tickets, has no opinions |
