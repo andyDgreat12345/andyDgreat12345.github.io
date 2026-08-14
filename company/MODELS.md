@@ -21,7 +21,7 @@ And one constraint that shapes the table as much as either rule:
 
 | Job | Tool | Why this one |
 |---|---|---|
-| Multi-file changes, refactors, building tickets | **OpenHands agent on DeepSeek V4 Pro** | A tested open-source coding agent (MIT, ~84k stars) rather than a harness we maintain ourselves; strong SWE-bench numbers at cents per ticket |
+| Multi-file changes, refactors, building tickets | **OpenHands agent on DeepSeek V4 Flash** | A tested open-source coding agent (MIT, ~84k stars) rather than a harness we maintain ourselves. Flash rather than Pro: it beats Pro on agentic benchmarks at a third of the output price, and a coding agent is a long agentic loop |
 | Running 24/7 with the laptop shut | **GitHub Actions, on `issues.labeled`** | Event-driven, so the engineer starts the moment a ticket is claimed. No scheduler, no cloud session, no laptop in the critical path |
 | A custom always-on daemon (dispatcher, watchers) | **Plain Python on Temporal** | Already built, stdlib only, no model needed — see `company/ops/` |
 | Adversarial review of the engineer's PR | **You** (a Claude reviewer when one is built) | The diversity rule, pointed the other way now: the builder is DeepSeek, so the reviewer must not be. Nothing automated answers to this yet, and branch protection enforces it regardless |
@@ -76,7 +76,7 @@ This table is not documentation of the code — it *is* the code, in
 ```
 tier           + data class   →  model
 ──────────────────────────────────────────────────────
-capable        + public       →  deepseek-v4-pro    (the OpenHands engineer)
+capable        + public       →  deepseek-v4-flash  (the OpenHands engineer)
 capable        + personal     →  REFUSED
 capable-alt    + public       →  claude-code        (reviewer — different vendor)
 capable-alt    + personal     →  REFUSED
@@ -85,7 +85,7 @@ cheap-bulk     + personal     →  REFUSED
 reasoning-bulk + public       →  deepseek-v4-pro
 reasoning-bulk + personal     →  REFUSED
 local          + any          →  ollama/qwen        (on your own hardware)
-mixed          + public       →  deepseek-v4-pro    (the SRE's ceiling)
+mixed          + public       →  deepseek-v4-flash  (the SRE's ceiling)
 mixed          + personal     →  REFUSED
 deterministic                 →  no model; a Python function
 ```

@@ -200,10 +200,13 @@ jobs:
         continue-on-error: true      # handoff must run even when the agent dies
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          # DeepSeek V4 Pro: a different vendor from the reviewer, which is the
-          # diversity rule in MODELS.md, and cents per ticket. LiteLLM routing,
-          # so the provider/ prefix matters.
-          LLM_MODEL: deepseek/deepseek-v4-pro
+          # V4 Flash, not Pro. Cheaper AND better suited: Flash beats Pro on
+          # every agentic benchmark DeepSeek published, at roughly a third of the
+          # output price — and an OpenHands run is exactly that, a long agentic
+          # loop rather than one hard answer. LiteLLM routing, so the provider/
+          # prefix matters. Swap to deepseek/deepseek-v4-pro here if a ticket
+          # proves too hard for it; that is the only change needed.
+          LLM_MODEL: deepseek/deepseek-v4-flash
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
