@@ -214,6 +214,12 @@ def main() -> int:
         except AssertionError as exc:
             failed += 1
             print(f"  FAIL  {fn.__name__}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            # An unexpected exception is a failure, not a reason to abort the
+            # run. Aborting hides every test after the first broken one, which
+            # is exactly when you most want the full picture.
+            failed += 1
+            print(f"  ERROR {fn.__name__}: {type(exc).__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
 

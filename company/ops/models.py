@@ -68,18 +68,22 @@ MODELS = {
 
 # (tier, data class) → model id. Mirrors the resolution table in MODELS.md.
 ROUTING = {
-    # Capable work runs on the Claude Code subscription, not the API. Same
-    # harness, no wallet, and personal data stays first-party.
-    ("capable", PUBLIC): "claude-code",
-    ("capable", PERSONAL): "claude-code",
-    # The gate. On public work DeepSeek V4 Pro is a different vendor and a
-    # different family, so the reviewer cannot inherit the builder's blind
-    # spots. On personal data diversity yields to the data policy: a
-    # cross-family reviewer is worth less than not sending applicant essays to
-    # a second vendor, so the reviewer is a Claude instance with a review-only
-    # prompt instead.
-    ("capable-alt", PUBLIC): "deepseek-v4-pro",
-    ("capable-alt", PERSONAL): "claude-code",
+    # The engineer runs as an OpenHands agent on DeepSeek V4 Pro — see
+    # .github/workflows/company-engineer.yml. That is a THIRD PARTY, which is
+    # why the personal row below is closed rather than pointed somewhere.
+    ("capable", PUBLIC): "deepseek-v4-pro",
+    # No automated engineer may touch real records. This is not a gap waiting to
+    # be filled with whatever is cheapest: until a first-party worker actually
+    # exists and has been run, the owner is the engineer for these tickets. The
+    # workflow gate refuses them before a prompt is composed; this refuses them
+    # before a model is chosen. Two independent controls, on purpose.
+    ("capable", PERSONAL): None,
+    # The gate. The builder is DeepSeek, so the reviewer must not be — a second
+    # instance of the same family shares its blind spots and will agree with it.
+    # Nothing answers to this today, which means the owner is the reviewer, and
+    # branch protection enforces that whether or not a worker ever appears.
+    ("capable-alt", PUBLIC): "claude-code",
+    ("capable-alt", PERSONAL): None,
     ("cheap-bulk", PUBLIC): "deepseek-v4-flash",
     ("cheap-bulk", PERSONAL): None,  # never routed — see resolve()
     ("reasoning-bulk", PUBLIC): "deepseek-v4-pro",
@@ -87,9 +91,11 @@ ROUTING = {
     ("local", PUBLIC): "ollama/qwen",
     ("local", PERSONAL): "ollama/qwen",
     # `mixed` is the SRE's tier: cheap polling, capable diagnosis. The runner
-    # picks per step; this is the ceiling.
-    ("mixed", PUBLIC): "claude-code",
-    ("mixed", PERSONAL): "claude-code",
+    # picks per step; this is the ceiling. Same vendor as the engineer because
+    # it runs the same OpenHands path — and closed on personal data for the same
+    # reason.
+    ("mixed", PUBLIC): "deepseek-v4-pro",
+    ("mixed", PERSONAL): None,
 }
 
 # Roles whose work is arithmetic, not judgement. Routing one to a model is a

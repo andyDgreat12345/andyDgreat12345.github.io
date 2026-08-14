@@ -61,11 +61,28 @@ def test_reviewer_is_a_different_family_on_public_work():
     assert models.different_family(builder, reviewer), (builder.id, reviewer.id)
 
 
-def test_diversity_yields_to_data_policy():
-    """On personal data the cross-family reviewer is worth less than not sending
-    applicant essays to a second vendor — so the alt tier stays first-party."""
-    reviewer = models.resolve("capable-alt", models.PERSONAL)
-    assert reviewer.first_party, reviewer.id
+def test_no_automated_worker_may_touch_personal_data():
+    """Stronger than the rule this replaces.
+
+    The engineer now runs on DeepSeek — a third party — so the old compromise
+    (route personal work to a first-party model) has nothing left to route to.
+    Rather than pick whatever is closest to acceptable, every worker tier is
+    CLOSED on personal data: the owner does those tickets. The company-engineer
+    workflow refuses them independently, before a prompt is ever composed.
+    """
+    for tier in ("capable", "capable-alt", "mixed", "cheap-bulk", "reasoning-bulk"):
+        try:
+            models.resolve(tier, models.PERSONAL)
+        except models.RoutingError:
+            pass
+        else:
+            raise AssertionError(f"tier {tier!r} accepted personal data")
+
+
+def test_local_models_may_still_see_personal_data():
+    """The exception that proves the rule: a model on your own hardware sends
+    nothing anywhere, so it is the one tier the policy does not close."""
+    assert models.resolve("local", models.PERSONAL).first_party
 
 
 def test_unknown_tier_raises_rather_than_downgrading():
@@ -233,6 +250,12 @@ def main() -> int:
         except AssertionError as exc:
             failed += 1
             print(f"  FAIL  {fn.__name__}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            # An unexpected exception is a failure, not a reason to abort the
+            # run. Aborting hides every test after the first broken one, which
+            # is exactly when you most want the full picture.
+            failed += 1
+            print(f"  ERROR {fn.__name__}: {type(exc).__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
 

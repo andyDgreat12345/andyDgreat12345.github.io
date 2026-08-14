@@ -12,44 +12,44 @@ Two rules generate almost every decision below.
 
 And one constraint that shapes the table as much as either rule:
 
-> **There is no Anthropic API wallet.** The capable tier therefore runs on the
-> claude.ai subscription through Claude Code Routines, which authenticate with a
-> subscription login rather than an API key. Everything else is either a small
-> DeepSeek balance or free.
+> **There is no Anthropic API wallet.** Every automated worker therefore runs on
+> a small DeepSeek balance or on your own hardware. That single constraint is why
+> the engineer is DeepSeek, why the reviewer must not be, and why personal data
+> has no automated worker at all.
 
 ## The routing table
 
 | Job | Tool | Why this one |
 |---|---|---|
-| Multi-file changes, refactors, writing the harness itself | **Claude Code** (subscription) | Longest reliable horizon on real repos; skills, hooks, subagents, and permission scoping are the harness features this whole design leans on. No API key involved |
-| Running 24/7 with the laptop shut | **Claude Code Routines** | Scheduled cloud sessions, started and approved from a browser — this is what removes your laptop from the critical path. Minimum interval one hour |
+| Multi-file changes, refactors, building tickets | **OpenHands agent on DeepSeek V4 Pro** | A tested open-source coding agent (MIT, ~84k stars) rather than a harness we maintain ourselves; strong SWE-bench numbers at cents per ticket |
+| Running 24/7 with the laptop shut | **GitHub Actions, on `issues.labeled`** | Event-driven, so the engineer starts the moment a ticket is claimed. No scheduler, no cloud session, no laptop in the critical path |
 | A custom always-on daemon (dispatcher, watchers) | **Plain Python on Temporal** | Already built, stdlib only, no model needed — see `company/ops/` |
-| Adversarial review of a Claude-written PR | **DeepSeek V4 Pro** | The diversity rule: a different vendor *and* a different family, so it cannot inherit the builder's blind spots. Costs cents per review |
-| Second independent implementation of a hard ticket | **DeepSeek V4 Pro** | Statistically tied with frontier models on SWE-bench Verified, at bulk-tier prices — two attempts from different families is affordable now in a way it was not |
+| Adversarial review of the engineer's PR | **You** (a Claude reviewer when one is built) | The diversity rule, pointed the other way now: the builder is DeepSeek, so the reviewer must not be. Nothing automated answers to this yet, and branch protection enforces it regardless |
+| Second independent implementation of a hard ticket | **DeepSeek V4 Pro, run twice** | Cheap enough that two attempts are affordable — but same family, so pick between them yourself rather than letting one grade the other |
 | Bulk summarising: 500 news items, filings, changelogs | **DeepSeek V4 Flash** | Roughly an order of magnitude cheaper per token; the job is volume, not judgement |
 | Chinese ↔ English source ingestion for the market repo | **DeepSeek V4 Flash** | Strong Chinese-language handling on public sources, at bulk-tier price |
 | Cheap deep reasoning: backtest post-mortems, ranking hypotheses | **DeepSeek V4 Pro** | Reasoning-grade output when you can tolerate latency and the input is public |
 | Data labelling, test fixtures, first-pass classification | **DeepSeek V4 Flash** | Reviewed downstream anyway; the cheap tier is the right tier |
 | The 1-minute filter: dedupe, "is this worth waking a paid model?" | **Local model via Ollama** (Qwen or Llama 8B) | Zero marginal cost means you can run it constantly, which is what makes a high-cadence company affordable |
-| Anything touching personal data or shipping to users | **Claude Code + you** | Data policy plus accountability |
+| Anything touching personal data | **You, or a local model** | No automated worker may see real records. Refused in two independent places — see below |
 | Counting tokens, enforcing budgets, tripping the breaker | **No model** | Arithmetic. A model that decides whether to stop spending is a bad idea |
 
-**Codex is deliberately absent.** It was the reviewer in the first draft of this
-table, and it is a fine one. It lost the slot on price: it needs a second paid
-account to do a job DeepSeek V4 Pro now does for cents, from an equally
-independent family. If the DeepSeek relationship ever becomes a problem — an
-outage, a policy change, a quality drop — Codex is the drop-in replacement, and
-swapping it back is one line in `company/ops/models.py`.
+**Codex is deliberately absent, and is now the obvious reviewer.** DeepSeek took
+the engineer's seat, which vacates the gate: a reviewer must be a different
+family from the builder, and Codex is one. It costs a second paid account, which
+is the only reason it is not already wired. Swapping it in is one line in
+`company/ops/models.py`.
 
 ## Per-department assignment
 
-**`andyDgreat12345.github.io` — front office.** Claude Code builds the Astro
-site and the HQ dashboard; Comms runs on the cheap tier to draft changelog copy
-from merged PRs; you approve anything public-facing. `risk:med` by default because
-it is your public face.
+**`andyDgreat12345.github.io` — front office.** The OpenHands engineer builds the
+Astro site and the HQ dashboard; Comms runs on the cheap tier to draft changelog
+copy from merged PRs; you approve anything public-facing. `risk:med` by default
+because it is your public face.
 
-**`Ai-case-writer-tool` — handles user text.** Claude only, end to end. No bulk
-tier anywhere in the request path. This is a data-policy call, not a quality one.
+**`Ai-case-writer-tool` — handles user text.** No automated worker, end to end.
+The engineer's workflow refuses `dept:casewriter` before it composes a prompt.
+This is a data-policy call, not a quality one.
 
 **`Chinese-ai-stocks-prediction-model` — the heaviest agent user.** DeepSeek does
 the volume work: ingest Chinese-language news and filings, summarise, translate,
@@ -58,10 +58,11 @@ backtest logic, and the interpretation. Local model runs the market-hours poller
 that decides whether anything interesting happened. This repo alone justifies the
 three-tier setup.
 
-**`College-acceptance-prediction-ai-` — personal data.** Claude only for anything
-touching real applicant records. The bulk tier may work on synthetic or public
-aggregate data only, and the Analyst must state in the spec which kind a ticket
-involves before an Engineer starts.
+**`College-acceptance-prediction-ai-` — personal data.** You, for anything
+touching real applicant records; the engineer is refused at the gate. A local
+model may work on real data because it sends nothing anywhere, and the bulk tier
+may work on synthetic or public aggregate data only. The Analyst must state in
+the spec which kind a ticket involves before an Engineer starts.
 
 ## How a role picks its model
 
@@ -75,34 +76,39 @@ This table is not documentation of the code — it *is* the code, in
 ```
 tier           + data class   →  model
 ──────────────────────────────────────────────────────
-capable        + any          →  claude-code        (subscription, no API key)
-capable-alt    + public       →  deepseek-v4-pro    (reviewer / second attempt)
-capable-alt    + personal     →  claude-code        (diversity yields to data policy)
+capable        + public       →  deepseek-v4-pro    (the OpenHands engineer)
+capable        + personal     →  REFUSED
+capable-alt    + public       →  claude-code        (reviewer — different vendor)
+capable-alt    + personal     →  REFUSED
 cheap-bulk     + public       →  deepseek-v4-flash
-cheap-bulk     + personal     →  REFUSED (never routed to bulk)
+cheap-bulk     + personal     →  REFUSED
 reasoning-bulk + public       →  deepseek-v4-pro
 reasoning-bulk + personal     →  REFUSED
 local          + any          →  ollama/qwen        (on your own hardware)
-mixed          + any          →  claude-code        (the SRE's ceiling)
+mixed          + public       →  deepseek-v4-pro    (the SRE's ceiling)
+mixed          + personal     →  REFUSED
 deterministic                 →  no model; a Python function
 ```
+
+**Every worker tier is closed on personal data.** That is stronger than the rule
+it replaced. The engineer runs on DeepSeek — a third party — so the old
+compromise of routing personal work to a first-party model has nothing left to
+route to, and rather than pick whatever is closest to acceptable, the company
+simply has no automated worker for those tickets. You do them. `local` is the
+single exception: a model on your own hardware sends nothing anywhere.
 
 `REFUSED` is literal: `resolve()` raises `RoutingError` rather than quietly
 downgrading, because a silent fallback to a cheaper model is precisely how
 personal data reaches the bulk tier. The refusal is the enforcement of
 CHARTER.md's data policy; everything else about that policy is prose.
 
-The one place the diversity rule bends is personal data: a cross-family reviewer
-is worth less than not sending applicant essays to a second vendor. On those
-tickets, the reviewer is a Claude instance with a review-only prompt and no write
-access, and you read the diff yourself before merging.
-
 ## Two meters, because zero dollars is not free
 
-Subscription work is not billed per token, so a dollar cap cannot see it. Left
-alone that is a hole big enough to drive the company through: the engineer is
-the busiest role, it now prices at $0.00 a run, and the breaker would have
-reported 0% of cap while it worked all night.
+Subscription work is not billed per token, so a dollar cap cannot see it. The
+engineer is metered work again now that it runs on DeepSeek, but the second meter
+stays: the moment any role runs on a subscription seat, a dollars-only breaker
+goes blind to the busiest worker in the company. That failure is silent, so the
+meter that catches it stays wired whether or not it currently reads anything.
 
 So the Controller runs two meters and the tightest one decides:
 
