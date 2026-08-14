@@ -102,8 +102,32 @@ Keep the vocabulary small. Every label is machine-readable by the dispatcher.
 - `risk:low` (reversible, no user impact) `risk:med` `risk:high` (money, data, public)
 - `status:inbox` `status:needs-spec` `status:ready` `status:building`
   `status:verify` `status:ship` `status:done` `status:blocked`
+- `claim:analyst` `claim:engineer` `claim:reviewer` `claim:sre`
+  `claim:researcher` `claim:comms` — who is holding the ticket *right now*
 - `needs:human` — the escalation flag. Anything wearing this is yours and the
   dispatcher will not touch it.
+
+### Claims are leases, not locks
+
+A claim is the company's only lock: the fan-out will not hand a claimed ticket
+to anyone else. But it **expires after 90 minutes**, and that is the important
+half.
+
+A worker that dies mid-ticket cannot release its own claim, and these workers die
+quietly — a Claude Code Routine that exhausts its daily run allowance simply
+never wakes up again. A lock with no expiry would leave that ticket held forever
+by something that no longer exists, on a board that looks busy. So the heartbeat
+reaps dead leases, and **a reaped lease costs the ticket an attempt**: something
+started it and did not finish, and if that were free, a ticket that reliably
+kills its worker would be re-claimed every cycle until the three-strikes rule it
+never triggers stopped mattering.
+
+Capacity is per role, not per board. The engineer holds **one** ticket at a time
+— not caution, arithmetic: one Routine session does one ticket per wake, so a
+second claim is guaranteed to expire unworked.
+
+`company/workers/README.md` is the protocol every worker follows, and the exact
+Routine prompt that hires the engineer.
 
 ### Rules that keep it honest
 

@@ -16,3 +16,6 @@ Thumbs.db
 # Python bytecode from company/ops scripts
 __pycache__/
 *.pyc
+
+# The spend ledger is state, not source — it lives on the company-state branch
+company/ops/ledger.jsonl

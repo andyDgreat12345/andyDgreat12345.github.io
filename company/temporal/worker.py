@@ -27,8 +27,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from activities import (  # noqa: E402
     apply_labels,
     check_kill_switch,
+    place_claim,
     post_report,
     read_board,
+    read_spend,
+    release_claim,
     today,
 )
 from workflows import HeartbeatWorkflow  # noqa: E402
@@ -76,7 +79,10 @@ async def main() -> None:
         client,
         task_queue=TASK_QUEUE,
         workflows=[HeartbeatWorkflow],
-        activities=[check_kill_switch, read_board, apply_labels, post_report, today],
+        activities=[
+            check_kill_switch, read_board, read_spend, apply_labels,
+            place_claim, release_claim, post_report, today,
+        ],
         # One heartbeat every 15 minutes is not a throughput problem. Keeping the
         # ceiling low means a bug cannot fan out into hundreds of concurrent
         # GitHub calls before anyone notices.

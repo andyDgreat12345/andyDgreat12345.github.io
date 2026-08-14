@@ -11,9 +11,11 @@ What this buys over the cron version in .github/workflows/company-heartbeat.yml:
   * Overlap is handled by the schedule, not by a concurrency group that silently
     drops runs.
 
-The workflow itself makes no network calls and reads no clock. All of that is in
-activities.py; the decisions come from company/ops/board.py, which the Tier 0
-dispatcher also imports so the two paths cannot disagree.
+The workflow itself makes no network calls and reads no wall clock — the one
+time it needs "now", for lease expiry, it uses `workflow.now()`, which replays
+identically. All I/O is in activities.py; the decisions come from
+company/ops/board.py and company/ops/assign.py, which the Tier 0 dispatcher also
+imports so the two paths cannot disagree.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -33,7 +35,9 @@ with workflow.unsafe.imports_passed_through():
     sys.path.insert(
         0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops")
     )
-    from board import build_plan, labels_of, render, triage
+    from assign import LEASE_MINUTES, brief, fan_out
+    from assign import render as render_fanout
+    from board import attempts, build_plan, labels_of, render, triage
 
     # Activities are referenced by function rather than by string name. The
     # difference is not cosmetic: a string name carries no return type, so
@@ -43,11 +47,15 @@ with workflow.unsafe.imports_passed_through():
     # Stubbing still works, because Temporal dispatches on the registered name.
     from activities import (
         BoardSnapshot,
+        ClaimWrite,
         LabelWrite,
         apply_labels,
         check_kill_switch,
+        place_claim,
         post_report,
         read_board,
+        read_spend,
+        release_claim,
     )
 
 
@@ -59,6 +67,9 @@ class HeartbeatResult:
     triaged: list[str] = field(default_factory=list)
     report: str = ""
     reported_on: int | None = None
+    claims: list[dict] = field(default_factory=list)
+    releases: list[dict] = field(default_factory=list)
+    deferred: list[dict] = field(default_factory=list)
 
 
 # Reads are cheap and safe to hammer; writes are not. Both are retried, but a
@@ -144,12 +155,74 @@ class HeartbeatWorkflow:
 
         # 4. The decision. Pure, deterministic, replayable.
         plan, skipped = build_plan(issues, snapshot.prs_in_review)
+
+        # 5. Fan-out. The controller's degrade rule reaches the board here — a
+        #    soft brake on expensive work, above the hard COMPANY_PAUSED stop
+        #    already checked in step 1.
+        allows_capable = await workflow.execute_activity(
+            read_spend,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=READ,
+        )
+        held = [
+            {**h, "since": datetime.fromisoformat(h["since"].replace("Z", "+00:00"))}
+            for h in snapshot.held
+        ]
+        # workflow.now() rather than datetime.now(): a workflow may not read the
+        # wall clock, because replay would produce a different answer and every
+        # lease decision would change under it. Temporal's clock replays.
+        now = workflow.now()
+        claims, releases, deferred = fan_out(plan, held, now, allows_capable=allows_capable)
+
+        by_number = {i["number"]: i for i in issues}
+
+        # 6. Release dead leases before placing new ones, so capacity freed this
+        #    cycle is capacity the next claim can actually use.
+        for rel in releases:
+            issue = by_number.get(rel["issue"], {})
+            n = attempts(issue)
+            if apply:
+                await workflow.execute_activity(
+                    release_claim,
+                    LabelWrite(
+                        issue=rel["issue"],
+                        # The attempt bump is the cost of a dead lease. Without it
+                        # a ticket that reliably kills its worker is re-claimed
+                        # forever and MAX_ATTEMPTS never trips.
+                        labels=[f"attempt:{n + 1}"],
+                        remove=[f"claim:{rel['role']}"] + ([f"attempt:{n}"] if n else []),
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=WRITE,
+                )
+
+        # 7. Place claims. One activity per claim, so a failure partway through
+        #    resumes at the ticket it stopped on rather than re-briefing everyone.
+        for claim in claims:
+            issue = by_number.get(claim["issue"], {})
+            if apply:
+                await workflow.execute_activity(
+                    place_claim,
+                    ClaimWrite(
+                        issue=claim["issue"],
+                        label=claim["label"],
+                        brief=brief(claim, issue, now, LEASE_MINUTES),
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=WRITE,
+                )
+
         report = render(plan, skipped, triaged, paused=False)
+        fanout_report = render_fanout(claims, releases, deferred)
+        if fanout_report:
+            report = f"{report}\n\n{fanout_report}"
+
         self._result = HeartbeatResult(
-            paused=False, plan=plan, skipped=skipped, triaged=triaged, report=report
+            paused=False, plan=plan, skipped=skipped, triaged=triaged, report=report,
+            claims=claims, releases=releases, deferred=deferred,
         )
 
-        # 5. Report. Always, including on runs that started nothing — a silent
+        # 8. Report. Always, including on runs that started nothing — a silent
         #    heartbeat is indistinguishable from a dead one.
         if apply:
             self._result.reported_on = await workflow.execute_activity(
@@ -159,7 +232,4 @@ class HeartbeatWorkflow:
                 retry_policy=WRITE,
             )
 
-        # Worker fan-out goes here: one child workflow per plan entry, each
-        # starting the named role at the named tier. Left out on purpose — a
-        # half-built company should not be able to spend money. See ROLLOUT.md.
         return self._result

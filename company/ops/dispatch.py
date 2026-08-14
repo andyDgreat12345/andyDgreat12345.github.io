@@ -94,6 +94,25 @@ class GitHub:
     def comment(self, number: int, body: str) -> None:
         self._request("POST", f"/repos/{self.repo}/issues/{number}/comments", {"body": body})
 
+    def claim_since(self, number: int, label: str) -> str | None:
+        """When the current claim was applied, as an ISO timestamp.
+
+        From label events, for the same reason stall.py uses them: `updated_at`
+        also moves on comments, so a worker that comments busily and finishes
+        nothing would keep renewing its own lease forever — which is exactly the
+        worker the lease exists to reap.
+
+        Reads the LAST time the label was applied, not the first, so a ticket
+        legitimately re-claimed after an earlier release starts a fresh lease.
+        """
+        events = self._request(
+            "GET", f"/repos/{self.repo}/issues/{number}/events?per_page=100") or []
+        stamps = [
+            e["created_at"] for e in events
+            if e.get("event") == "labeled" and (e.get("label") or {}).get("name") == label
+        ]
+        return max(stamps) if stamps else None
+
     def find_or_create_shift_report(self) -> int:
         """One shift-report issue per day; every heartbeat comments on it."""
         title = f"Shift report — {date.today().isoformat()}"

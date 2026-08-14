@@ -25,7 +25,7 @@ from temporalio.worker import Worker
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from activities import BoardSnapshot, LabelWrite  # noqa: E402
+from activities import BoardSnapshot, ClaimWrite, LabelWrite  # noqa: E402
 from workflows import HeartbeatWorkflow  # noqa: E402
 
 import board  # noqa: E402  — on sys.path via activities
@@ -34,8 +34,18 @@ ADDRESS = os.environ.get("TEMPORAL_ADDRESS", "localhost:7233")
 
 # Recorded by the stubs so assertions can check what the workflow actually did,
 # not merely what it returned.
-CALLS: dict[str, list] = {"labels": [], "reports": []}
+CALLS: dict[str, list] = {"labels": [], "reports": [], "claims": [], "releases": []}
 FAIL_ONCE: dict[str, bool] = {}
+
+# What the board says is already claimed, as read_board would report it. Set per
+# test; `since` is an ISO string because that is what crosses the wire.
+HELD: list[dict] = []
+
+
+def _recent_iso() -> str:
+    """A claim taken a minute ago — inside any sane lease."""
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
 
 
 def issue(number, labels, body="do a thing", title="t"):
@@ -64,7 +74,20 @@ def stubs(paused: bool = False):
     @activity.defn(name="read_board")
     async def read_board() -> BoardSnapshot:
         import copy
-        return BoardSnapshot(issues=copy.deepcopy(BOARD), prs_in_review=0)
+        return BoardSnapshot(issues=copy.deepcopy(BOARD), prs_in_review=0,
+                             held=copy.deepcopy(HELD))
+
+    @activity.defn(name="read_spend")
+    async def read_spend() -> bool:
+        return not FAIL_ONCE.get("degraded", False)
+
+    @activity.defn(name="place_claim")
+    async def place_claim(write: ClaimWrite) -> None:
+        CALLS["claims"].append((write.issue, write.label, write.brief))
+
+    @activity.defn(name="release_claim")
+    async def release_claim(write: LabelWrite) -> None:
+        CALLS["releases"].append((write.issue, tuple(write.labels), tuple(write.remove)))
 
     @activity.defn(name="apply_labels")
     async def apply_labels(write: LabelWrite) -> None:
@@ -84,7 +107,8 @@ def stubs(paused: bool = False):
     async def today() -> str:
         return "2026-08-13"
 
-    return [check_kill_switch, read_board, apply_labels, post_report, today]
+    return [check_kill_switch, read_board, read_spend, apply_labels,
+            place_claim, release_claim, post_report, today]
 
 
 async def run_once(client: Client, *, paused: bool = False, apply: bool = True, timeout=45):
@@ -116,7 +140,8 @@ async def main() -> int:
     print(f"connected to {ADDRESS}\n")
 
     # --- 1. Normal run -----------------------------------------------------
-    CALLS["labels"].clear(); CALLS["reports"].clear()
+    for bucket in CALLS.values():
+        bucket.clear()
     result = await run_once(client)
 
     routed = [(p["issue"], p["role"]) for p in result.plan]
@@ -145,10 +170,25 @@ async def main() -> int:
     assert any("no dept label" in t for t in result.triaged)
     assert result.reported_on == 99
     assert len(CALLS["reports"]) == 1
-    print("1. normal run — routed", routed, "| skipped", sorted(skipped))
+
+    # Fan-out. Five tickets were routed but only three claimed: the engineer and
+    # the analyst each hold one, because each is a single session that can work
+    # one ticket per wake. Claiming all five would produce three expired leases
+    # and a board that looked busy the whole time.
+    claimed = sorted((c[0], c[1]) for c in CALLS["claims"])
+    assert claimed == [(1, "claim:engineer"), (2, "claim:analyst"), (5, "claim:sre")], claimed
+    deferred = {d["issue"]: d["why"] for d in result.deferred}
+    assert "at capacity" in deferred[6] and "at capacity" in deferred[8], deferred
+    # Every claim carries a brief, and the brief is self-contained — the worker
+    # arrives cold and cannot ask a follow-up question.
+    for _, _, text in CALLS["claims"]:
+        assert "Work order" in text and "company/roles/" in text and "Lease expires" in text
+    print("1. normal run — routed", routed, "| claimed", [c[0] for c in claimed],
+          "| skipped", sorted(skipped))
 
     # --- 2. Kill switch ----------------------------------------------------
-    CALLS["labels"].clear(); CALLS["reports"].clear()
+    for bucket in CALLS.values():
+        bucket.clear()
     result = await run_once(client, paused=True)
     assert result.paused and result.plan == [] and CALLS["labels"] == []
     assert "PAUSED" in result.report
@@ -156,7 +196,8 @@ async def main() -> int:
     print("2. kill switch — started nothing, still reported")
 
     # --- 3. Durability: an activity fails, the run resumes ------------------
-    CALLS["labels"].clear(); CALLS["reports"].clear()
+    for bucket in CALLS.values():
+        bucket.clear()
     FAIL_ONCE["post_report"] = True
     result = await run_once(client)
     assert result.reported_on == 99, "retry should have succeeded"
@@ -167,11 +208,57 @@ async def main() -> int:
     print("3. durability — post_report failed once, resumed, no work repeated")
 
     # --- 4. WIP limit / dry run --------------------------------------------
-    CALLS["labels"].clear(); CALLS["reports"].clear()
+    for bucket in CALLS.values():
+        bucket.clear()
     result = await run_once(client, apply=False)
     assert CALLS["labels"] == [] and CALLS["reports"] == [], "apply=False must not write"
     assert result.plan, "a dry run still produces a plan"
+    assert CALLS["claims"] == [] and CALLS["releases"] == []
+    assert result.claims, "a dry run still decides who would be claimed"
     print("4. dry run — decided without writing anything")
+
+    # --- 5. A dead lease is reaped, and costs an attempt --------------------
+    for bucket in CALLS.values():
+        bucket.clear()
+    HELD[:] = [{"issue": 1, "role": "engineer",
+                "since": "2020-01-01T00:00:00Z"}]        # ancient — worker is gone
+    result = await run_once(client)
+    released = {r[0]: (r[1], r[2]) for r in CALLS["releases"]}
+    assert 1 in released, CALLS["releases"]
+    added, removed = released[1]
+    assert "claim:engineer" in removed, removed
+    # The attempt bump is the point: without it a ticket that reliably kills its
+    # worker is re-claimed every cycle forever and MAX_ATTEMPTS never trips.
+    assert added == ("attempt:1",), added
+    # And it is not handed straight back to an identical worker in the same cycle.
+    assert 1 not in [c[0] for c in CALLS["claims"]], "reclaimed the ticket that just died"
+    assert any("cooling off" in d["why"] for d in result.deferred if d["issue"] == 1)
+    print("5. dead lease — released #1, charged an attempt, did not re-claim")
+
+    # --- 6. A live claim is left alone --------------------------------------
+    for bucket in CALLS.values():
+        bucket.clear()
+    HELD[:] = [{"issue": 1, "role": "engineer",
+                "since": _recent_iso()}]
+    result = await run_once(client)
+    assert CALLS["releases"] == [], "reaped a lease that was still alive"
+    assert 1 not in [c[0] for c in CALLS["claims"]], "double-claimed a held ticket"
+    # The engineer is at capacity holding #1, so #8 waits rather than colliding.
+    deferred = {d["issue"]: d["why"] for d in result.deferred}
+    assert "already claimed" in deferred[1], deferred
+    print("6. live lease — left alone, no double claim")
+
+    # --- 7. Degraded spend holds capable work, not the SRE ------------------
+    for bucket in CALLS.values():
+        bucket.clear()
+    HELD[:] = []
+    FAIL_ONCE["degraded"] = True
+    result = await run_once(client)
+    FAIL_ONCE["degraded"] = False
+    claimed = [c[0] for c in CALLS["claims"]]
+    assert claimed == [5], claimed  # the SRE only — capable tier held
+    assert all("capable-tier" in d["why"] for d in result.deferred if d["issue"] in (1, 2))
+    print("7. degraded — capable work held, SRE still running")
 
     print("\nall assertions passed")
     return 0

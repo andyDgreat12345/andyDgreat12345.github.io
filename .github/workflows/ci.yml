@@ -35,6 +35,12 @@ jobs:
       # invariant has been broken.
       - name: board + label vocabulary
         run: python company/ops/test_board.py
+      - name: stall detection
+        run: python company/ops/test_stall.py
+      - name: fan-out — claims, leases, and briefs
+        run: python company/ops/test_assign.py
+      - name: model routing + spend controller
+        run: python company/ops/test_controller.py
 
   site:
     name: Site

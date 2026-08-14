@@ -1,0 +1,100 @@
+name: Company controller
+
+# The budget breaker. Runs nightly, and after every heartbeat, to price what the
+# company spent and stop it when the cap is reached.
+#
+# Deliberately has no model — see company/roles/07-controller.md. A model
+# deciding whether to stop spending money on models is a conflict of interest.
+#
+# Scheduled runs only fire from the default branch.
+
+on:
+  schedule:
+    - cron: "0 23 * * *"   # 23:00 UTC — daily spend report
+  workflow_run:
+    workflows: ["Company heartbeat"]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: company-controller
+  cancel-in-progress: false
+
+jobs:
+  spend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The ledger is append-only state, so it lives on its own orphan branch
+      # rather than in the working tree — same pattern the market repo uses for
+      # oracle-state. A missing branch is a first run, not an error.
+      - name: Fetch the ledger
+        run: |
+          git fetch origin company-state:company-state 2>/dev/null || {
+            echo "no ledger yet — first run"; exit 0; }
+          git show company-state:ledger.jsonl > /tmp/ledger.jsonl 2>/dev/null || true
+
+      - id: report
+        env:
+          COMPANY_LEDGER: /tmp/ledger.jsonl
+          COMPANY_DAILY_CAP: ${{ vars.COMPANY_DAILY_CAP || '5.00' }}
+          COMPANY_MONTHLY_CAP: ${{ vars.COMPANY_MONTHLY_CAP || '100.00' }}
+          # The engineer runs on a subscription, not an API key, so a dollar
+          # cap cannot see it. Runs are the second meter — see MODELS.md.
+          COMPANY_DAILY_RUN_CAP: ${{ vars.COMPANY_DAILY_RUN_CAP || '40' }}
+        run: |
+          set +e
+          python3 company/ops/controller.py report | tee /tmp/report.md \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "tripped=$([ $? -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # Escalate rather than silently absorbing it. Flipping COMPANY_PAUSED is
+      # the owner's act — the default token cannot write repository variables,
+      # and that limitation matches the charter rather than fighting it.
+      - name: Escalate if the cap tripped
+        if: steps.report.outputs.tripped == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+
+          repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
+          title = "Controller: spend cap reached"
+
+          def api(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body else None
+              req = urllib.request.Request(
+                  f"https://api.github.com{path}", data=data, method=method)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              if data:
+                  req.add_header("Content-Type", "application/json")
+              with urllib.request.urlopen(req) as r:
+                  raw = r.read()
+              return json.loads(raw) if raw else None
+
+          q = urllib.parse.quote(f'repo:{repo} is:issue is:open in:title "{title}"')
+          if any(i["title"] == title for i in (api(f"/search/issues?q={q}") or {}).get("items", [])):
+              print("alert already open — not duplicating")
+              raise SystemExit(0)
+
+          body = open("/tmp/report.md").read()
+          api(f"/repos/{repo}/issues", "POST", {
+              "title": title,
+              "body": body + (
+                  "\n\n---\n\n**To stop the company:** set the repository variable "
+                  "`COMPANY_PAUSED` to `1` (Settings → Secrets and variables → "
+                  "Actions → Variables). That page works on a phone.\n\n"
+                  "**To keep going:** raise `COMPANY_DAILY_CAP`. Only you can do "
+                  "either — no role may raise a cap or resume a paused company."
+              ),
+              "labels": ["dept:hq", "needs:human", "risk:high"],
+          })
+          print("opened controller alert")
+          PY

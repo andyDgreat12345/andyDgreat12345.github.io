@@ -16,13 +16,14 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops"))
 
+from assign import claim_label, claimed_role  # noqa: E402
 from dispatch import GitHub  # noqa: E402  — the Tier 0 client, reused verbatim
 
 
@@ -33,6 +34,10 @@ class BoardSnapshot:
 
     issues: list[dict]
     prs_in_review: int
+    # Live claims: {issue, role, since}, `since` an ISO string. The workflow
+    # parses them — dataclass fields cross the wire as JSON, and a datetime does
+    # not survive that round trip intact.
+    held: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -40,6 +45,22 @@ class LabelWrite:
     issue: int
     labels: list[str]
     remove: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ClaimWrite:
+    """Apply a claim and post the brief that goes with it.
+
+    One activity, not two, because the brief is what makes the claim meaningful:
+    a claim with no brief is a lock on a ticket nobody has been told how to do.
+    The comment goes first so the worker can never arrive at a claimed ticket
+    with no instructions — a duplicate brief after a retry is noise, whereas a
+    claim with no brief is a worker guessing.
+    """
+
+    issue: int
+    label: str
+    brief: str
 
 
 def _client() -> GitHub:
@@ -71,14 +92,61 @@ async def check_kill_switch() -> bool:
 
 
 @activity.defn
+async def read_spend() -> bool:
+    """May the fan-out claim capable-tier work right now?
+
+    This is the controller's 90% degrade rule reaching the fan-out: hold the
+    expensive work, let cheap and local carry on. It is a *soft* brake, and
+    deliberately so — the hard stop is `COMPANY_PAUSED`, which check_kill_switch
+    reads first and which no role may clear.
+
+    An absent ledger returns True. That is a fail-open, and worth saying out
+    loud: on a worker with no ledger mounted this brake does nothing at all, and
+    the Actions controller remains the real breaker. Failing closed here would
+    mean a fresh worker with no spend history refuses to do any capable work,
+    i.e. a company that cannot start.
+    """
+    import controller  # noqa: PLC0415 — heavy-ish, and only this activity needs it
+
+    entries = controller._read(controller.LEDGER)
+    if not entries:
+        activity.logger.info("no ledger — capable tier allowed")
+        return True
+    verdict = controller.assess(entries, datetime.now(timezone.utc))
+    activity.logger.info("spend: %s — %s", verdict.state, verdict.reason)
+    return verdict.allows_capable
+
+
+@activity.defn
 async def read_board() -> BoardSnapshot:
     gh = _client()
     issues = gh.issues()
     # Draft PRs are still being written, so they do not count against the WIP
     # limit — the limit exists to cap what is waiting on a reviewer.
     in_review = sum(1 for pr in gh.open_prs() if not pr.get("draft"))
-    activity.logger.info("board: %d issues, %d PRs in review", len(issues), in_review)
-    return BoardSnapshot(issues=issues, prs_in_review=in_review)
+
+    # Claim ages cost one API call each, so they are fetched only for tickets
+    # actually wearing a claim — normally a handful, and zero on an idle board.
+    held = []
+    for issue in issues:
+        names = {l["name"] for l in issue.get("labels", [])}
+        role = claimed_role(names)
+        if role is None:
+            continue
+        since = gh.claim_since(issue["number"], claim_label(role))
+        # No event means the label predates the events window, which is old
+        # enough to reap on its own. Falling back to the issue's creation time
+        # makes it expire rather than making it immortal — an unreadable lease
+        # must fail toward release, never toward holding forever.
+        held.append({
+            "issue": issue["number"],
+            "role": role,
+            "since": since or issue["created_at"],
+        })
+
+    activity.logger.info("board: %d issues, %d PRs in review, %d claimed",
+                         len(issues), in_review, len(held))
+    return BoardSnapshot(issues=issues, prs_in_review=in_review, held=held)
 
 
 @activity.defn
@@ -103,6 +171,35 @@ async def apply_labels(write: LabelWrite) -> None:
             ", ".join(write.labels) or "-",
             ", ".join(write.remove) or "-",
         )
+
+
+@activity.defn
+async def place_claim(write: ClaimWrite) -> None:
+    """Post the brief, then take the lock. In that order, always — see ClaimWrite."""
+    gh = _client()
+    gh.comment(write.issue, write.brief)
+    gh.add_labels(write.issue, [write.label])
+    activity.logger.info("#%d claimed by %s", write.issue, write.label)
+
+
+@activity.defn
+async def release_claim(write: LabelWrite) -> None:
+    """Drop a dead lease and charge it an attempt.
+
+    The attempt bump is the point. Something started this ticket and vanished;
+    if that were free, a ticket that reliably kills its worker would be re-claimed
+    every cycle forever.
+
+    It is its own activity rather than a bare apply_labels so the workflow
+    history says "release_claim" — a reaped lease is the one label edit you will
+    go looking for later, and it should not hide among the routine ones.
+    """
+    gh = _client()
+    if write.labels:
+        gh.add_labels(write.issue, write.labels)
+    for name in write.remove:
+        gh.remove_label(write.issue, name)
+    activity.logger.info("#%d released: -%s", write.issue, ", ".join(write.remove) or "-")
 
 
 @activity.defn
