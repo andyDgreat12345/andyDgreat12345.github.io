@@ -152,6 +152,36 @@ def test_success_is_judged_by_artifact_not_by_assertion():
     assert "status:verify" in won and "status:verify" not in lost
 
 
+def test_a_run_that_never_started_costs_no_attempt():
+    """A missing secret is the company's fault, not the ticket's. Charging it
+    would spend one of three lives, and three would escalate a perfectly good
+    ticket as unworkable."""
+    add, remove, note = handoff.decide(
+        issue(labels=["status:ready", "claim:engineer"]), "engineer",
+        pr_number=None, attempted=False)
+    assert "claim:engineer" in remove
+    assert not any(l.startswith("attempt:") for l in add + remove)
+    assert "nothing was attempted" in note.lower()
+    assert "did not fail" in note
+
+
+def test_an_unattempted_run_does_not_advance_the_stage():
+    """It is still ready to build. Nothing happened."""
+    add, remove, _ = handoff.decide(issue(labels=["status:ready", "claim:engineer"]),
+                                    "engineer", pr_number=None, attempted=False)
+    assert "status:verify" not in add
+    assert "status:ready" not in remove
+
+
+def test_an_unattempted_run_never_escalates_however_many_times_it_happens():
+    """The counter is untouched, so a repeatedly misconfigured company annoys you
+    rather than burying the ticket."""
+    add, _, note = handoff.decide(issue(labels=["attempt:2", "claim:engineer"]),
+                                  "engineer", pr_number=None, attempted=False)
+    assert "needs:human" not in add
+    assert "attempt:3" not in add
+
+
 def test_the_release_names_the_role_it_released():
     for role in ("engineer", "reviewer", "sre"):
         _, remove, _ = handoff.decide(issue(), role, pr_number=7)

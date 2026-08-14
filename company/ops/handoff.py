@@ -31,17 +31,38 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from assign import claim_label  # noqa: E402
-from board import MAX_ATTEMPTS, attempts, labels_of  # noqa: E402
+from board import MAX_ATTEMPTS, attempts  # noqa: E402
 
 
-def decide(issue: dict, role: str, pr_number: int | None) -> tuple[list[str], list[str], str]:
+def decide(issue: dict, role: str, pr_number: int | None,
+           attempted: bool = True) -> tuple[list[str], list[str], str]:
     """What to do with the ticket now the worker has stopped.
+
+    `attempted=False` means the run never started — a missing secret, a paused
+    company, something about the configuration rather than the ticket. That case
+    exists because the alternative is worse than it looks: a misconfiguration
+    charged as a failed attempt spends one of the ticket's three lives, and
+    three of them escalate a perfectly good ticket as unworkable. The ticket
+    would be blamed for the company's own setup.
 
     Returns (labels_to_add, labels_to_remove, comment). Pure.
     """
-    have = labels_of(issue)
     claim = claim_label(role)
     n = attempts(issue)
+
+    if not attempted:
+        # Claim off, counter untouched. The ticket goes straight back on the
+        # board and is picked up again the moment the problem is fixed.
+        return (
+            [],
+            [claim],
+            f"**Engineer not configured — nothing was attempted.**\n\n"
+            f"Released `{claim}` and left the attempt counter alone: this ticket "
+            f"did not fail, the company is not set up to work it yet. See the "
+            f"run summary in Actions for which secret is missing, and "
+            f"`company/workers/README.md` for where it goes.\n\n"
+            f"The ticket returns to the board automatically once that is fixed.",
+        )
 
     if pr_number is not None:
         # Handed on to the SRE. The stage moves and the lock comes off; the
@@ -133,6 +154,8 @@ def main() -> int:
     ap.add_argument("--issue", type=int, required=True)
     ap.add_argument("--role", default="engineer")
     ap.add_argument("--branch", required=True)
+    ap.add_argument("--not-attempted", action="store_true",
+                    help="the run never started — release without charging an attempt")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
@@ -142,8 +165,11 @@ def main() -> int:
         return 2
 
     gh = GitHub(args.repo, token)
-    pr = gh.pr_for_branch(args.branch)
-    add, remove, comment = decide(gh.issue(args.issue), args.role, pr)
+    # Do not go looking for a PR on a run that never started; the branch name is
+    # a placeholder in that case and the lookup would be a lie either way.
+    pr = None if args.not_attempted else gh.pr_for_branch(args.branch)
+    add, remove, comment = decide(gh.issue(args.issue), args.role, pr,
+                                  attempted=not args.not_attempted)
 
     print(f"#{args.issue}: pr={pr} += {add} -= {remove}")
     print(comment)

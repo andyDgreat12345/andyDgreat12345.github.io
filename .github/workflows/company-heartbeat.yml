@@ -1,9 +1,12 @@
 name: Company heartbeat
 
 # The company's clock. Every 15 minutes it reads the board, triages new tickets,
-# decides who should be working on what, and logs the decision to the day's shift
-# report issue. It starts no work by itself — it emits a plan. Wiring the plan to
-# real workers is step 6 in company/ROLLOUT.md.
+# claims work for the roles that have workers, reaps dead leases, and logs the
+# decision to the day's shift report issue.
+#
+# It starts no work directly. It applies a `claim:<role>` label, and the worker
+# wakes on that label — see company-engineer.yml. The heartbeat never calls a
+# model and never runs an agent.
 #
 # NOTE: scheduled workflows only fire from the repository's DEFAULT branch. This
 # will not run on the feature branch — merge it first, then use the manual
@@ -43,17 +46,28 @@ jobs:
 
       - id: dispatch
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT_TOKEN, not GITHUB_TOKEN, and this is the whole ball game.
+          #
+          # A label applied with GITHUB_TOKEN does NOT trigger other workflows —
+          # GitHub does this deliberately to stop runaway loops. The engineer
+          # wakes on `issues.labeled`. So claiming a ticket with the default
+          # token applies the label and wakes nothing: the board looks busy, the
+          # heartbeat looks green, and no work ever starts.
+          #
+          # Falls back so the company still triages without a PAT; the report
+          # says loudly when it is running in that state.
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          COMPANY_CLAIMS_WAKE_WORKERS: ${{ secrets.PAT_TOKEN != '' && 'yes' || 'no' }}
           COMPANY_PAUSED: ${{ vars.COMPANY_PAUSED }}
         run: |
           python3 company/ops/dispatch.py \
             ${{ (github.event_name == 'schedule' || inputs.apply) && '--apply' || '' }} \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # Placeholder for the worker fan-out. Once you have wired a role runner, this
-  # becomes a matrix over fromJSON(needs.dispatch.outputs.plan) — one job per
-  # ticket, each starting the role named in the plan at the tier named in the
-  # plan. Kept inert until then so a half-built company cannot spend money.
+  # The fan-out is no longer here. It happens inside dispatch.py, which applies
+  # the claim label — and the claim label is what wakes the worker, via
+  # `issues.labeled` in company-engineer.yml. There is nothing for this job to
+  # start; it prints the plan so a run's decision is legible at a glance.
   workers:
     needs: dispatch
     if: needs.dispatch.outputs.paused == 'false' && needs.dispatch.outputs.plan != '[]'

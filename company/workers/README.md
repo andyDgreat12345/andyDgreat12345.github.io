@@ -10,7 +10,7 @@ worker finds its own claim and reads the order cold.** Nothing pushes work into
 a worker, and no worker chooses what to work on. That separation is what makes
 "no AI is the boss" mechanical rather than aspirational.
 
-## The engineer: OpenHands on DeepSeek V4 Pro
+## The engineer: OpenHands on DeepSeek V4 Flash
 
 Built. `.github/workflows/company-engineer.yml` runs on `issues.labeled`, so the
 moment the fan-out applies `claim:engineer` the engineer starts — no polling, no
@@ -29,8 +29,13 @@ Repository → Settings → Secrets and variables → Actions:
 | Secret | What it is |
 |---|---|
 | `LLM_API_KEY` | DeepSeek API key |
-| `PAT_TOKEN` | GitHub PAT, read/write on contents, issues, pull requests, workflows |
+| `PAT_TOKEN` | GitHub PAT, read/write on **contents, issues, pull requests** — and deliberately NOT workflows |
 | `PAT_USERNAME` | your GitHub username |
+
+Withholding the **workflows** permission is deliberate. The work order tells the
+engineer never to edit `.github/workflows/`; withholding the scope makes that
+mechanical rather than a request, so the push simply fails if it ever tries. A
+worker that can rewrite its own gates has none.
 
 **The PAT is not optional, and the reason is subtle enough to be worth stating.**
 A pull request opened using the default `GITHUB_TOKEN` **does not trigger other
@@ -58,6 +63,23 @@ agent reporting its own success is exactly the claim that rule distrusts.
 
 No PR means a failed attempt and the counter advances. Three failures and the
 ticket gets `needs:human` and is never retried automatically.
+
+## Roles with no worker are never claimed for
+
+`assign.py` keeps a `HIRED` set, and today it contains one name: the engineer.
+
+This matters more than it looks. Claiming a ticket for a role nobody has hired
+means the lease expires unworked, the attempt counter advances, and after three
+cycles the ticket escalates wearing `needs:human` **as though the work had been
+tried and failed**. It was never attempted. The board would fill with false
+failures on tickets whose only problem is that the stage has no worker yet.
+
+So an unhired stage reports as *waiting on you*, which is what it is — and the
+stall alarm already knows not to alarm about that.
+
+Add a role to `HIRED` the moment a worker exists for it, and not before. Being
+late costs a ticket that waits; being early costs a ticket that lies about
+having failed.
 
 ## The reviewer: still you
 
@@ -106,11 +128,45 @@ vendored from that example (MIT) precisely so that does not happen here.
 
 Bump the pin deliberately, in a PR, like any other dependency.
 
+## A misconfigured company does not blame the ticket
+
+If `LLM_API_KEY` or `PAT_TOKEN` is missing, the gate notices **before** the run
+starts, releases the claim, and leaves the attempt counter alone. The ticket
+goes straight back on the board and is picked up again the moment the secret
+exists.
+
+The alternative is worse than it sounds: a missing secret discovered mid-run
+looks like a failed run, a failed run is a failed attempt, and three of those
+escalate a perfectly good ticket as unworkable. The ticket would be blamed for
+the company's own setup.
+
+## What a run costs, and who writes it down
+
+The controller prices work from a table in `models.py`. That is good enough to
+trip a cap, and it is not what happened — the provider knows the real number and
+the agent can read it back. So every run banks its actual cost to
+`company/ops/bank.py`, which appends one line to `ledger.jsonl` on the
+**`company-state`** orphan branch.
+
+Three details that are deliberate:
+
+- **Banked before the handoff, and on failure too.** The money is spent whether
+  or not a PR came out of it, and a run that fails *expensively* is exactly the
+  one the controller needs to see.
+- **An unreadable cost is recorded as a hole, not a zero.** The controller
+  counts holes separately and says so on the report; spend written down as
+  $0.00 is how a bill surprises someone.
+- **A failed ledger write never fails the run.** A ticket that was built and
+  handed on should not be reported as failed because bookkeeping lost a race —
+  but it prints loudly, because a silent bookkeeping failure is how a ledger
+  quietly stops being true.
+
+Entries carry `"source": "provider"` so they can be told apart from the
+controller's own estimates. When the two disagree, the estimate is the one
+that's wrong.
+
 ## Known gaps
 
-- **Real spend is reported but not banked.** The engineer prints its actual cost
-  to the run summary; the controller's ledger is still fed by estimates. Wiring
-  the two together is the obvious next ticket.
 - **DeepSeek V4 with OpenHands is unproven here.** Its SWE-bench numbers are
   strong and OpenHands is model-agnostic, but OpenHands documents performing
   best with frontier models. Watch the first few tickets before trusting it with
