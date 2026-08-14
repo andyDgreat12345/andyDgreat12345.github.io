@@ -7,7 +7,16 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-import { groupByStage, prefixed, splitNeedsHuman, STAGE_LABEL, STAGE_ORDER } from './hq.mjs';
+import {
+  claimExpired,
+  claimOf,
+  claimSince,
+  groupByStage,
+  prefixed,
+  splitNeedsHuman,
+  STAGE_LABEL,
+  STAGE_ORDER,
+} from './hq.mjs';
 
 const issue = (number, names, created_at = `2026-08-${String(number).padStart(2, '0')}T00:00:00Z`) => ({
   number,
@@ -92,4 +101,44 @@ test('every ordered stage has a human-readable label', () => {
   for (const stage of STAGE_ORDER) {
     assert.ok(STAGE_LABEL[stage], `no display label for ${stage}`);
   }
+});
+
+test('the claim role is read off the labels', () => {
+  assert.equal(claimOf(issue(1, ['claim:engineer', 'status:building'])), 'engineer');
+});
+
+test('a ticket with no claim has no claim to show', () => {
+  // The page renders the badge only when claimOf() is non-empty, so a no-claim
+  // ticket must yield '' — not a placeholder the render path has to filter.
+  assert.equal(claimOf(issue(2, ['status:ready'])), '');
+  assert.equal(claimOf(issue(3, ['dept:site', 'risk:low'])), '');
+});
+
+test('claim age starts from the last labeled event, not updated_at', () => {
+  // Same source as company/ops/dispatch.py claim_since(): `updated_at` also
+  // moves on comments, so a worker that comments busily and finishes nothing
+  // would keep renewing its own lease forever.
+  const i = issue(4, ['claim:engineer', 'status:building']);
+  const events = [
+    { event: 'labeled', label: { name: 'claim:engineer' }, created_at: '2026-08-01T10:00:00Z' },
+    { event: 'labeled', label: { name: 'status:building' }, created_at: '2026-08-01T10:05:00Z' },
+    { event: 'unlabeled', label: { name: 'claim:engineer' }, created_at: '2026-08-01T10:30:00Z' },
+    { event: 'labeled', label: { name: 'claim:engineer' }, created_at: '2026-08-01T11:00:00Z' },
+  ];
+  assert.equal(claimSince(i, events), '2026-08-01T11:00:00Z');
+});
+
+test('a claim with no label event ages from issue creation, toward expiry', () => {
+  // An unreadable lease must fail toward release, never toward immortality —
+  // the same call the dispatcher makes.
+  const i = issue(5, ['claim:engineer'], '2026-08-01T09:00:00Z');
+  assert.equal(claimSince(i, []), i.created_at);
+});
+
+test('a claim past its 90-minute lease is expired', () => {
+  // 90 comes from LEASE_MINUTES in company/ops/assign.py, restated in hq.mjs.
+  const start = '2026-08-01T00:00:00Z';
+  assert.equal(claimExpired(start, '2026-08-01T01:29:00Z'), false, '89 minutes is still live');
+  assert.equal(claimExpired(start, '2026-08-01T01:30:00Z'), false, 'exactly 90 minutes is not yet past');
+  assert.equal(claimExpired(start, '2026-08-01T01:31:00Z'), true, '91 minutes is dead');
 });
