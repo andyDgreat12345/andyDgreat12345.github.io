@@ -48,6 +48,44 @@ const newestFirst = (a, b) => String(b.created_at).localeCompare(String(a.create
 export const prefixed = (issue, prefix) =>
   labelNames(issue).find((n) => n.startsWith(prefix))?.slice(prefix.length) ?? '';
 
+// How long a worker may hold a ticket before the claim is a dead lease.
+// Restated from company/ops/assign.py (LEASE_MINUTES), which is the source of
+// truth — the site is JS and cannot import Python, so the two must be kept in
+// step by hand, exactly like the stage lists above restate the router's.
+export const LEASE_MINUTES = 90;
+
+/** The role holding this ticket, or '' when nobody is. */
+export const claimOf = (issue) => prefixed(issue, 'claim:');
+
+/**
+ * When the current claim was applied, as an ISO string.
+ * Read from the issue's label events, not `updated_at`, for the same reason
+ * company/ops/dispatch.py's claim_since() does: `updated_at` also moves on
+ * comments, so a worker that comments busily and finishes nothing would keep
+ * renewing its own lease forever.
+ *
+ * `events` is the issue's /events payload. A claim whose label predates the
+ * events window has no stamp; fall back to the issue's creation time so the
+ * age errs toward expiry, never toward "held forever" — the dispatcher makes
+ * the same call.
+ */
+export function claimSince(issue, events = []) {
+  const label = `claim:${claimOf(issue)}`;
+  const stamps = (events ?? [])
+    .filter((e) => e?.event === 'labeled' && e?.label?.name === label)
+    .map((e) => e.created_at)
+    .sort();
+  return stamps.length ? stamps[stamps.length - 1] : issue.created_at;
+}
+
+/**
+ * Has the claim outlived its lease? Runs in the browser, not at build time:
+ * the page is built at deploy and served for a heartbeat or two after, so the
+ * judgment must be made against the reader's clock, not the builder's.
+ */
+export const claimExpired = (sinceIso, nowIso = new Date().toISOString()) =>
+  Date.parse(nowIso) - Date.parse(sinceIso) > LEASE_MINUTES * 60000;
+
 /**
  * Split the board into what needs the owner and everything else.
  * `needs:human` is the only call to action on the page, so it is separated

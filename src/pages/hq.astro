@@ -12,7 +12,16 @@
 // mattered most. Rendering the raw timestamp and ageing it client-side means a
 // stale page reports itself as stale.
 import Base from '../layouts/Base.astro';
-import { groupByStage, prefixed, splitNeedsHuman, STAGE_LABEL, STAGE_OWNER } from '../lib/hq.mjs';
+import {
+  claimOf,
+  claimSince,
+  groupByStage,
+  LEASE_MINUTES,
+  prefixed,
+  splitNeedsHuman,
+  STAGE_LABEL,
+  STAGE_OWNER,
+} from '../lib/hq.mjs';
 
 const REPO = 'andyDgreat12345/andyDgreat12345.github.io';
 const API = 'https://api.github.com';
@@ -46,6 +55,20 @@ async function api<T>(path: string, fallback: T): Promise<T> {
 }
 
 const rawIssues = await api<Issue[]>(`/repos/${REPO}/issues?state=open&per_page=100`, []);
+
+// Claims are leases, and the dashboard has to show how long each has been held.
+// That starts from the label EVENT that applied the claim — the same source as
+// company/ops/dispatch.py's claim_since() — because `updated_at` also moves on
+// comments and would keep a dead lease looking alive. One extra call per claimed
+// ticket, normally a handful; a failed call degrades to the issue's creation
+// time, which ages the claim toward expiry rather than freezing it.
+type LabelEvent = { event?: string; label?: { name?: string }; created_at?: string };
+const claimSinceByNumber: Record<number, string> = {};
+for (const i of rawIssues.filter((x) => claimOf(x))) {
+  const events = await api<LabelEvent[]>(`/repos/${REPO}/issues/${i.number}/events?per_page=100`, []);
+  claimSinceByNumber[i.number] = claimSince(i, events);
+}
+const claimSinceOf = (i: Issue): string => claimSinceByNumber[i.number];
 
 const runs = await api<{ workflow_runs?: { created_at: string; conclusion: string | null; html_url: string }[] }>(
   `/repos/${REPO}/actions/workflows/company-heartbeat.yml/runs?per_page=1`,
@@ -114,6 +137,15 @@ const builtAt = new Date().toISOString();
           <li>
             <a href={i.html_url}>#{i.number} {i.title}</a>
             {deptOf(i) && <span class="tag">{deptOf(i)}</span>}
+            {claimOf(i) && (
+              <span
+                class="tag hq-claim"
+                data-claim-since={claimSinceOf(i)}
+                data-lease-minutes={LEASE_MINUTES}
+              >
+                {claimOf(i)} · <span class="hq-claim-age">…</span>
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -138,6 +170,15 @@ const builtAt = new Date().toISOString();
                 <a href={i.html_url}>#{i.number} {i.title}</a>
                 {deptOf(i) && <span class="tag">{deptOf(i)}</span>}
                 {riskOf(i) === 'high' && <span class="tag hq-risk">risk</span>}
+                {claimOf(i) && (
+                  <span
+                    class="tag hq-claim"
+                    data-claim-since={claimSinceOf(i)}
+                    data-lease-minutes={LEASE_MINUTES}
+                  >
+                    {claimOf(i)} · <span class="hq-claim-age">…</span>
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -154,9 +195,15 @@ const builtAt = new Date().toISOString();
 
 <script is:inline>
   // Age every timestamp in the browser, so a page that stopped rebuilding says
-  // so instead of freezing on "fresh".
+  // so instead of freezing on "fresh". Claims get the same treatment: the lease
+  // is a deadline in the reader's future, so "dead or not" has to be judged
+  // here, against the reader's clock, not at deploy.
   (function () {
     var STALE_MINUTES = 90;
+    // This script cannot import hq.mjs (is:inline, no bundling), so the lease
+    // length rides on the badge as data-lease-minutes, sourced from the
+    // LEASE_MINUTES restated in hq.mjs (company/ops/assign.py is the truth).
+    // The check below mirrors claimExpired() in hq.mjs.
     function ago(ms) {
       var m = Math.round(ms / 60000);
       if (m < 1) return 'just now';
@@ -165,6 +212,15 @@ const builtAt = new Date().toISOString();
       if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
       var d = Math.round(h / 24);
       return d + (d === 1 ? ' day ago' : ' days ago');
+    }
+    function heldFor(ms) {
+      var m = Math.round(ms / 60000);
+      if (m < 1) return 'held just now';
+      if (m < 60) return 'held ' + m + ' min';
+      var h = Math.round(m / 60);
+      if (h < 24) return 'held ' + h + (h === 1 ? ' hour' : ' hours');
+      var d = Math.round(h / 24);
+      return 'held ' + d + (d === 1 ? ' day' : ' days');
     }
     document.querySelectorAll('[data-heartbeat], [data-built]').forEach(function (el) {
       var iso = el.getAttribute('data-heartbeat') || el.getAttribute('data-built');
@@ -177,6 +233,16 @@ const builtAt = new Date().toISOString();
       } else if (el.hasAttribute('data-heartbeat')) {
         el.className = 'hq-ok';
       }
+    });
+    document.querySelectorAll('[data-claim-since]').forEach(function (el) {
+      var iso = el.getAttribute('data-claim-since');
+      var leaseMinutes = parseInt(el.getAttribute('data-lease-minutes'), 10) || 90;
+      var age = Date.now() - new Date(iso).getTime();
+      var dead = age > leaseMinutes * 60000;
+      var ageEl = el.querySelector('.hq-claim-age');
+      if (ageEl) ageEl.textContent = heldFor(age) + (dead ? ' — expired' : '');
+      el.title = 'claimed ' + iso + (dead ? ' — lease expired' : '');
+      if (dead) el.classList.add('hq-claim-dead');
     });
   })();
 </script>
@@ -254,6 +320,13 @@ const builtAt = new Date().toISOString();
   }
   .hq-list a { overflow-wrap: anywhere; }
   .hq-risk { background: var(--accent); color: #fff; }
+  /* A claim past its lease is a dead lock, not progress — the heartbeat will
+     reap it next cycle, so it reads as a warning rather than a tag. */
+  .hq-claim-dead {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
 
   .hq-foot { margin: 34px 0 60px; }
 
