@@ -65,19 +65,52 @@ def test_wip_limit_blocks_engineers_only():
 
 def test_triage_never_guesses_a_department():
     """Classifying is allowed; guessing is not."""
-    add, note = board.triage(issue(1, ["status:inbox"]))
-    assert add == []
+    add, remove, note = board.triage(issue(1, ["status:inbox"]))
+    assert add == [] and remove == []
     assert "no dept label" in note
 
 
-def test_triage_fills_defaults_and_routes_empty_bodies_to_spec():
-    add, note = board.triage(issue(1, ["dept:site", "status:inbox"], body=""))
+def test_triage_always_moves_a_ticket_out_of_inbox():
+    """The bug this test exists for: triage used to classify a ticket and leave
+    it in Inbox, which no role owns — so it sat there forever."""
+    for body in ["", "a real description", "- [ ] check this\n"]:
+        add, remove, _ = board.triage(issue(1, ["dept:site", "status:inbox"], body=body))
+        assert remove == ["status:inbox"], f"body={body!r} left the ticket in inbox"
+        assert set(add) & set(board.STAGE_OWNER), f"body={body!r} gave it no next stage"
+
+
+def test_triage_fills_defaults_and_picks_the_next_stage():
+    add, remove, note = board.triage(issue(1, ["dept:site", "status:inbox"], body=""))
     assert set(add) == {"size:m", "risk:med", "status:needs-spec"}, add
     assert "empty body" in note
 
-    add, note = board.triage(issue(2, ["dept:site", "status:inbox"], body="real"))
-    assert set(add) == {"size:m", "risk:med"}, add
-    assert note is None
+    # A description without checkable criteria still needs the analyst.
+    add, _, note = board.triage(issue(2, ["dept:site", "status:inbox"], body="make it nice"))
+    assert "status:needs-spec" in add, add
+    assert "no acceptance criteria" in note
+
+    # One that already states how it will be checked can skip straight to build.
+    add, _, note = board.triage(
+        issue(3, ["dept:site", "status:inbox"], body="Do X.\n\n- [ ] page lists tickets\n"))
+    assert "status:ready" in add, add
+    assert "straight to build" in note
+
+
+def test_empty_checkbox_does_not_count_as_criteria():
+    """The work-order template pre-fills a bare `- [ ]`. If that counted, every
+    ticket would look specified and skip the analyst entirely."""
+    assert not board.has_acceptance_criteria("Do the thing.\n\n- [ ]\n")
+    assert not board.has_acceptance_criteria("Do the thing.\n\n- [ ]   \n")
+    assert board.has_acceptance_criteria("- [ ] something checkable")
+    assert board.has_acceptance_criteria("- [x] already done")
+
+
+def test_triage_never_drags_a_ticket_backwards():
+    """A ticket already mid-flight keeps its stage; triage only classifies it."""
+    add, remove, note = board.triage(
+        issue(1, ["dept:site", "status:inbox", "status:building"], body="x"))
+    assert remove == [], remove
+    assert not (set(add) & set(board.STAGE_OWNER)), add
 
 
 def test_blocked_tickets_are_skipped_not_routed():
@@ -97,14 +130,7 @@ def test_label_vocabulary_covers_every_routing_key():
     """labels.py and board.py must agree: the dispatcher reads nothing but
     labels, so a key it routes on that no one can apply is dead code."""
     defined = {name for name, _, _ in labels.LABELS}
-    routed = (
-        board.DEPTS
-        | board.SIZES
-        | board.RISKS
-        | set(board.STAGE_OWNER)
-        | {"status:inbox", "status:building", "status:ship",
-           "status:done", "status:blocked", "needs:human"}
-    )
+    routed = board.DEPTS | board.SIZES | board.RISKS | board.STAGES | {"needs:human"}
     assert not routed - defined, f"board.py routes on labels nobody creates: {routed - defined}"
 
 

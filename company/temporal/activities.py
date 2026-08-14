@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from temporalio import activity
@@ -39,6 +39,7 @@ class BoardSnapshot:
 class LabelWrite:
     issue: int
     labels: list[str]
+    remove: list[str] = field(default_factory=list)
 
 
 def _client() -> GitHub:
@@ -82,12 +83,26 @@ async def read_board() -> BoardSnapshot:
 
 @activity.defn
 async def apply_labels(write: LabelWrite) -> None:
-    """Idempotent by GitHub's own semantics — adding a label twice is a no-op,
-    which is what makes this safe to retry after an ambiguous failure."""
-    if not write.labels:
-        return
-    _client().add_labels(write.issue, write.labels)
-    activity.logger.info("#%d += %s", write.issue, ", ".join(write.labels))
+    """Idempotent by GitHub's own semantics — adding a label twice is a no-op and
+    removing an absent one 404s, which the client treats as success. That is what
+    makes this safe to retry after an ambiguous failure.
+
+    Adds before removing, so the ticket is never briefly stage-less: a crash
+    between the two calls leaves it wearing both labels, which the router handles,
+    rather than none, which would strand it.
+    """
+    gh = _client()
+    if write.labels:
+        gh.add_labels(write.issue, write.labels)
+    for name in write.remove:
+        gh.remove_label(write.issue, name)
+    if write.labels or write.remove:
+        activity.logger.info(
+            "#%d += %s -= %s",
+            write.issue,
+            ", ".join(write.labels) or "-",
+            ", ".join(write.remove) or "-",
+        )
 
 
 @activity.defn

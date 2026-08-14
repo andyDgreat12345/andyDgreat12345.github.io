@@ -123,18 +123,21 @@ class HeartbeatWorkflow:
         for issue in issues:
             if "status:inbox" not in labels_of(issue):
                 continue
-            add, note = triage(issue)
-            if add:
+            add, remove, note = triage(issue)
+            if add or remove:
                 if apply:
                     await workflow.execute_activity(
                         apply_labels,
-                        LabelWrite(issue=issue["number"], labels=add),
+                        LabelWrite(issue=issue["number"], labels=add, remove=remove),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=WRITE,
                     )
                 # Reflect the write locally so build_plan below sees the board as
-                # it now is, rather than as it was when we read it.
-                issue.setdefault("labels", []).extend({"name": n} for n in add)
+                # it now is, rather than as it was when we read it. This is what
+                # lets a ticket be triaged and picked up in the same cycle instead
+                # of waiting 15 minutes to be looked at.
+                kept = [l for l in issue.get("labels", []) if l["name"] not in remove]
+                issue["labels"] = kept + [{"name": n} for n in add]
                 triaged.append(f"#{issue['number']} → {', '.join(add)}")
             if note:
                 triaged.append(f"#{issue['number']} ({note})")

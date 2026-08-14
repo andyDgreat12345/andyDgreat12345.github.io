@@ -78,6 +78,19 @@ class GitHub:
     def add_labels(self, number: int, labels: list[str]) -> None:
         self._request("POST", f"/repos/{self.repo}/issues/{number}/labels", {"labels": labels})
 
+    def remove_label(self, number: int, label: str) -> None:
+        """404 means the label was already off the issue, which is the state we
+        wanted — so it is success, not an error. That is what makes a retry after
+        an ambiguous failure safe."""
+        try:
+            self._request(
+                "DELETE",
+                f"/repos/{self.repo}/issues/{number}/labels/{urllib.parse.quote(label)}",
+            )
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+
     def comment(self, number: int, body: str) -> None:
         self._request("POST", f"/repos/{self.repo}/issues/{number}/comments", {"body": body})
 
@@ -145,11 +158,17 @@ def main() -> int:
     for issue in issues:
         if "status:inbox" not in labels_of(issue):
             continue
-        add, note = triage(issue)
-        if add:
+        add, remove, note = triage(issue)
+        if add or remove:
             if args.apply:
-                gh.add_labels(issue["number"], add)
-            issue.setdefault("labels", []).extend({"name": n} for n in add)
+                if add:
+                    gh.add_labels(issue["number"], add)
+                for name in remove:
+                    gh.remove_label(issue["number"], name)
+            # Reflect the writes locally so build_plan below sees the board as it
+            # now is, rather than as it was when we read it.
+            current = [l for l in issue.get("labels", []) if l["name"] not in remove]
+            issue["labels"] = current + [{"name": n} for n in add]
             triaged.append(f"#{issue['number']} → {', '.join(add)}")
         if note:
             triaged.append(f"#{issue['number']} ({note})")
