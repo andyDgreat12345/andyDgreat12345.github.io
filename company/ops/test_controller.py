@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import bank
 import controller
 import models
 
@@ -111,6 +112,38 @@ def test_cost_is_plain_arithmetic():
 
 def test_local_tier_is_free():
     assert models.cost(models.resolve("local", models.PERSONAL), 10**7, 10**7) == 0.0
+
+
+# ---------- banking what a run really cost ----------
+
+def test_a_banked_run_records_the_provider_figure():
+    """The controller prices from a table; the provider knows the real number.
+    An estimate never reconciled against reality drifts, and a breaker running
+    on a drifting estimate is one you cannot trust when it matters."""
+    e = bank.entry(12, "engineer", "deepseek/deepseek-v4-flash", 0.0143, NOW)
+    assert e["usd"] == 0.0143 and e["measured"] is True
+    assert e["source"] == "provider"
+
+
+def test_an_unmeasured_run_is_a_hole_not_a_zero():
+    """Unmeasured spend written down as 0.00 is how a bill surprises someone."""
+    e = bank.entry(12, "engineer", "deepseek/deepseek-v4-flash", None, NOW)
+    assert e["measured"] is False
+
+
+def test_the_controller_reads_a_banked_entry():
+    """The two halves have to actually fit: what bank.py writes is what
+    assess() counts."""
+    banked = bank.entry(12, "engineer", "deepseek/deepseek-v4-flash", 2.00, NOW)
+    v = controller.assess([banked], NOW, daily_cap=5.0, monthly_cap=100.0)
+    assert v.spent_today == 2.00
+    assert v.unmeasured_runs == 0
+
+
+def test_a_banked_hole_reaches_the_controller_as_a_hole():
+    banked = bank.entry(12, "engineer", "deepseek/deepseek-v4-flash", None, NOW)
+    v = controller.assess([banked], NOW, daily_cap=5.0, monthly_cap=100.0)
+    assert v.unmeasured_runs == 1
 
 
 # ---------- the breaker ----------

@@ -140,11 +140,33 @@ looks like a failed run, a failed run is a failed attempt, and three of those
 escalate a perfectly good ticket as unworkable. The ticket would be blamed for
 the company's own setup.
 
+## What a run costs, and who writes it down
+
+The controller prices work from a table in `models.py`. That is good enough to
+trip a cap, and it is not what happened — the provider knows the real number and
+the agent can read it back. So every run banks its actual cost to
+`company/ops/bank.py`, which appends one line to `ledger.jsonl` on the
+**`company-state`** orphan branch.
+
+Three details that are deliberate:
+
+- **Banked before the handoff, and on failure too.** The money is spent whether
+  or not a PR came out of it, and a run that fails *expensively* is exactly the
+  one the controller needs to see.
+- **An unreadable cost is recorded as a hole, not a zero.** The controller
+  counts holes separately and says so on the report; spend written down as
+  $0.00 is how a bill surprises someone.
+- **A failed ledger write never fails the run.** A ticket that was built and
+  handed on should not be reported as failed because bookkeeping lost a race —
+  but it prints loudly, because a silent bookkeeping failure is how a ledger
+  quietly stops being true.
+
+Entries carry `"source": "provider"` so they can be told apart from the
+controller's own estimates. When the two disagree, the estimate is the one
+that's wrong.
+
 ## Known gaps
 
-- **Real spend is reported but not banked.** The engineer prints its actual cost
-  to the run summary; the controller's ledger is still fed by estimates. Wiring
-  the two together is the obvious next ticket.
 - **DeepSeek V4 with OpenHands is unproven here.** Its SWE-bench numbers are
   strong and OpenHands is model-agnostic, but OpenHands documents performing
   best with frontier models. Watch the first few tickets before trusting it with

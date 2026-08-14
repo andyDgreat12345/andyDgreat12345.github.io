@@ -89,16 +89,24 @@ def main() -> int:
         logger.error("engineer failed: %s", exc)
         status = 1
 
+    cost = None
     try:
-        spend = conversation.conversation_stats.get_combined_metrics()
+        cost = conversation.conversation_stats.get_combined_metrics().accumulated_cost
         summarise(
             f"**Engineer run** — model `{model}`, "
-            f"cost ${spend.accumulated_cost:.4f}"
-            f"{' (FAILED)' if status else ''}"
+            f"cost ${cost:.4f}{' (FAILED)' if status else ''}"
         )
     except Exception as exc:  # noqa: BLE001
         summarise(f"**Engineer run** — model `{model}`, cost UNMEASURED ({exc}). "
                   "That is a hole in the ledger, not zero spend.")
+
+    # Hand the figure to the workflow, which banks it. Written to a file rather
+    # than returned, because this process may have already failed above and the
+    # money was spent either way.
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as fh:
+            fh.write(f"usd={'' if cost is None else f'{cost:.6f}'}\n")
 
     return status
 

@@ -236,6 +236,7 @@ jobs:
           cat /tmp/prompt.txt
 
       - name: Work the ticket
+        id: agent
         continue-on-error: true      # handoff must run even when the agent dies
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -253,6 +254,20 @@ jobs:
           git config user.email "engineer@users.noreply.github.com"
           git checkout -b "$BRANCH"
           python company/workers/engineer_agent.py /tmp/prompt.txt
+
+      # Bank what it actually cost, before the handoff and regardless of outcome:
+      # the money was spent whether or not a PR came out of it, and a run that
+      # fails expensively is exactly the one the controller needs to see.
+      - name: Bank the spend
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          python company/ops/bank.py \
+            --ticket "$ISSUE" --role engineer \
+            --model deepseek/deepseek-v4-flash \
+            --usd "${{ steps.agent.outputs.usd }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Judged by artifact, not by assertion. The agent does not get to report
       # its own success — ORG.md says a run with no PR did not happen.
