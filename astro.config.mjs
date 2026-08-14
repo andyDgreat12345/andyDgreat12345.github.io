@@ -9,6 +9,7 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   site: 'https://andydgreat12345.github.io',
   base: '/',
-  // Generates sitemap-index.xml so search engines can discover every page.
-  integrations: [sitemap()],
+  // Generates sitemap-index.xml so search engines can discover every page,
+  // minus the operational ones — /hq is internal state, not public content.
+  integrations: [sitemap({ filter: (page) => !/\/hq\/?$/.test(page) })],
 });

@@ -1,0 +1,89 @@
+name: CI
+
+# The gate. ORG.md says CI decides when work is done and no agent's assessment
+# substitutes for a green check — until this existed, that was a sentence rather
+# than a mechanism, and the tests only ran when someone remembered to run them.
+#
+# Make these required in Settings → Branches → main → Require status checks.
+# A gate that can be skipped is decoration.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push supersedes the first; no point finishing a run for a commit
+# nobody will merge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  board:
+    name: Routing logic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # No dependencies on purpose — company/ops is stdlib-only so a bare runner
+      # can always dispatch. If this step ever needs a pip install, that
+      # invariant has been broken.
+      - name: board + label vocabulary
+        run: python company/ops/test_board.py
+
+  site:
+    name: Site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: dashboard grouping
+        run: npm test
+      - name: build
+        env:
+          # /hq reads the board at build time. Unauthenticated would still build
+          # — it degrades to an empty board — but then the build would not
+          # exercise the path that actually renders tickets.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build
+
+  heartbeat:
+    name: Heartbeat workflow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet -r company/temporal/requirements.txt
+
+      - name: Start a Temporal dev server
+        run: |
+          curl -fsSL "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64" \
+            -o /tmp/temporal.tar.gz
+          tar xzf /tmp/temporal.tar.gz -C /tmp
+          /tmp/temporal server start-dev --headless --port 7233 --log-level error &
+          # Poll rather than sleep — a fixed sleep is either flaky or slow.
+          for i in $(seq 1 30); do
+            /tmp/temporal operator cluster health --address localhost:7233 >/dev/null 2>&1 && break
+            sleep 2
+          done
+          /tmp/temporal operator cluster health --address localhost:7233
+
+      # Runs the real workflow against a real server with stubbed GitHub calls.
+      # Covers routing, the kill switch, a dry run, and durability — an activity
+      # is failed once on purpose and the test asserts the run resumed without
+      # repeating earlier work. Expect a "simulated GitHub 502" traceback in the
+      # log; that is the durability case, not a failure.
+      - name: durable heartbeat, end to end
+        timeout-minutes: 5
+        run: python company/temporal/test_heartbeat.py

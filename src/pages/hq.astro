@@ -1,0 +1,263 @@
+---
+// HQ — the company at a glance. Answers two questions on a phone: is it alive,
+// and does it need me?
+//
+// Built statically from the GitHub API at build time. The heartbeat re-triggers
+// the Pages deploy (see .github/workflows/deploy.yml), so this page is roughly
+// as fresh as the last heartbeat.
+//
+// Freshness is deliberately computed in the BROWSER, not here. If it were
+// computed at build time, a dead heartbeat would stop rebuilding the page and it
+// would freeze displaying "fresh" forever — the page would lie exactly when it
+// mattered most. Rendering the raw timestamp and ageing it client-side means a
+// stale page reports itself as stale.
+import Base from '../layouts/Base.astro';
+import { groupByStage, prefixed, splitNeedsHuman, STAGE_LABEL, STAGE_OWNER } from '../lib/hq.mjs';
+
+const REPO = 'andyDgreat12345/andyDgreat12345.github.io';
+const API = 'https://api.github.com';
+
+type Issue = {
+  number: number;
+  title: string;
+  html_url: string;
+  created_at: string;
+  labels: { name: string }[];
+  pull_request?: unknown;
+};
+
+async function api<T>(path: string, fallback: T): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  // Authenticated in CI; unauthenticated locally, where the 60/hour limit is
+  // easy to hit. Either way a failure must degrade to an empty board rather
+  // than break the site build.
+  const token = import.meta.env.GITHUB_TOKEN ?? process.env.GITHUB_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  try {
+    const res = await fetch(`${API}${path}`, { headers });
+    if (!res.ok) return fallback;
+    return (await res.json()) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+const rawIssues = await api<Issue[]>(`/repos/${REPO}/issues?state=open&per_page=100`, []);
+
+const runs = await api<{ workflow_runs?: { created_at: string; conclusion: string | null; html_url: string }[] }>(
+  `/repos/${REPO}/actions/workflows/company-heartbeat.yml/runs?per_page=1`,
+  {},
+);
+const lastRun = runs.workflow_runs?.[0] ?? null;
+
+// Same source of truth as the dispatcher: the workflow passes vars.COMPANY_PAUSED
+// straight through as an env var. Unset renders as an empty string, which is
+// not "1", so the default is "running".
+const paused = (process.env.COMPANY_PAUSED ?? '').trim() === '1';
+
+const { needsHuman, rest } = splitNeedsHuman(rawIssues);
+const issues = [...needsHuman, ...rest];
+const groups = groupByStage(rest);
+
+const deptOf = (i: Issue) => prefixed(i, 'dept:');
+const riskOf = (i: Issue) => prefixed(i, 'risk:');
+
+const builtAt = new Date().toISOString();
+---
+
+<Base
+  title="HQ"
+  description="Operational dashboard for the company."
+  noindex={true}
+>
+  <section class="hero" style="padding-bottom:8px">
+    <p class="eyebrow">HQ</p>
+    <h1>The company<span class="accent-dot">.</span></h1>
+    <p class="lead">Is it alive, and does it need me?</p>
+  </section>
+
+  <div class="hq-status">
+    <div class="hq-stat">
+      <span class="hq-stat-k">Clock</span>
+      <span class="hq-stat-v">
+        {lastRun ? (
+          <span data-heartbeat={lastRun.created_at} class="hq-age">…</span>
+        ) : (
+          <span class="hq-bad">no runs found</span>
+        )}
+      </span>
+    </div>
+    <div class="hq-stat">
+      <span class="hq-stat-k">State</span>
+      <span class="hq-stat-v">
+        {paused ? <span class="hq-bad">PAUSED</span> : <span class="hq-ok">running</span>}
+      </span>
+    </div>
+    <div class="hq-stat">
+      <span class="hq-stat-k">Open tickets</span>
+      <span class="hq-stat-v">{issues.length}</span>
+    </div>
+    <div class="hq-stat">
+      <span class="hq-stat-k">Page built</span>
+      <span class="hq-stat-v"><span data-built={builtAt} class="hq-age">…</span></span>
+    </div>
+  </div>
+
+  {needsHuman.length > 0 && (
+    <section class="hq-needs">
+      <p class="eyebrow" style="margin-bottom:14px">Waiting on you — {needsHuman.length}</p>
+      <ul class="hq-list">
+        {needsHuman.map((i) => (
+          <li>
+            <a href={i.html_url}>#{i.number} {i.title}</a>
+            {deptOf(i) && <span class="tag">{deptOf(i)}</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {issues.length === 0 ? (
+    <p class="muted" style="margin:40px 0">
+      Board is clear. No open tickets — that is a valid state, not an error.
+    </p>
+  ) : (
+    <div class="hq-groups">
+      {groups.map((g) => (
+        <section class="hq-group">
+          <div class="hq-group-head">
+            <h2>{STAGE_LABEL[g.stage] ?? g.stage.replace('status:', '')}</h2>
+            <span class="hq-owner">{STAGE_OWNER[g.stage] ?? '—'} · {g.items.length}</span>
+          </div>
+          <ul class="hq-list">
+            {g.items.map((i) => (
+              <li>
+                <a href={i.html_url}>#{i.number} {i.title}</a>
+                {deptOf(i) && <span class="tag">{deptOf(i)}</span>}
+                {riskOf(i) === 'high' && <span class="tag hq-risk">risk</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )}
+
+  <p class="small muted hq-foot">
+    Built from the board at page-build time; the heartbeat triggers a rebuild.
+    Source: <a href={`https://github.com/${REPO}/tree/main/company`}>company/</a>
+  </p>
+</Base>
+
+<script is:inline>
+  // Age every timestamp in the browser, so a page that stopped rebuilding says
+  // so instead of freezing on "fresh".
+  (function () {
+    var STALE_MINUTES = 90;
+    function ago(ms) {
+      var m = Math.round(ms / 60000);
+      if (m < 1) return 'just now';
+      if (m < 60) return m + ' min ago';
+      var h = Math.round(m / 60);
+      if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+      var d = Math.round(h / 24);
+      return d + (d === 1 ? ' day ago' : ' days ago');
+    }
+    document.querySelectorAll('[data-heartbeat], [data-built]').forEach(function (el) {
+      var iso = el.getAttribute('data-heartbeat') || el.getAttribute('data-built');
+      var age = Date.now() - new Date(iso).getTime();
+      el.textContent = ago(age);
+      el.title = iso;
+      if (el.hasAttribute('data-heartbeat') && age > STALE_MINUTES * 60000) {
+        el.textContent = ago(age) + ' — STALE';
+        el.className = 'hq-bad';
+      } else if (el.hasAttribute('data-heartbeat')) {
+        el.className = 'hq-ok';
+      }
+    });
+  })();
+</script>
+
+<style>
+  /* Status strip — wraps on narrow screens rather than scrolling sideways. */
+  .hq-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 8px 0 40px;
+  }
+  .hq-stat {
+    flex: 1 1 150px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 3px;
+    padding: 14px 16px;
+    min-width: 0;
+  }
+  .hq-stat-k {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    margin-bottom: 6px;
+  }
+  .hq-stat-v {
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+  .hq-ok { color: var(--text); }
+  .hq-bad { color: var(--accent); font-weight: 600; }
+
+  /* Anything waiting on the owner comes first and is visually separated — it is
+     the only part of this page that is a call to action. */
+  .hq-needs {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 3px;
+    padding: 20px 22px;
+    margin: 0 0 40px;
+  }
+  .hq-needs .eyebrow { color: var(--accent); }
+  .hq-needs .eyebrow::after { background: var(--accent); opacity: 0.35; }
+
+  .hq-group { border-top: 1px solid var(--border); padding: 22px 0 6px; }
+  .hq-group:last-of-type { border-bottom: 1px solid var(--border); }
+  .hq-group-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .hq-group-head h2 { font-size: 1.25rem; margin: 0 0 0.2em; }
+  .hq-owner {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+  }
+
+  .hq-list { list-style: none; margin: 10px 0 0; padding: 0; }
+  .hq-list li {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 7px 0;
+  }
+  .hq-list a { overflow-wrap: anywhere; }
+  .hq-risk { background: var(--accent); color: #fff; }
+
+  .hq-foot { margin: 34px 0 60px; }
+
+  @media (max-width: 520px) {
+    .hq-stat { flex-basis: 100%; }
+  }
+</style>
