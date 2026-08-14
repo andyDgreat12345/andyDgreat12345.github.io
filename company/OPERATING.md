@@ -5,6 +5,37 @@ This file is the part that is easy to skip and is the reason most of these
 attempts die: what the owner actually does, how failures are caught, and the
 order in which roles get hired.
 
+## The two token traps
+
+Both of these cost the company a working day, both were silent, and both have
+the same root: **GitHub deliberately does not let automation trigger more
+automation.** Anything done with the default `GITHUB_TOKEN` — applying a label,
+opening a pull request — creates an event that triggers no workflow. It is a
+loop guard, and it is correct, and it will take your company apart quietly if
+you do not know about it.
+
+**Trap one: the claim that wakes nobody.** The heartbeat applies
+`claim:engineer`; the engineer wakes on `issues.labeled`. Apply that label with
+`GITHUB_TOKEN` and the label lands, the board looks busy, the shift report is
+green, and no work ever starts. Nothing anywhere reports an error, because
+nothing anywhere failed.
+
+**Trap two: the PR nothing checks.** The engineer opens a pull request. Open it
+with `GITHUB_TOKEN` and CI never runs on it — so the gate shows no failures,
+because it never looked. A PR with zero checks is an *absent* gate, not a
+passing one, and it is indistinguishable from a passing one at a glance.
+
+Both are fixed by `PAT_TOKEN`, a personal access token, whose events do trigger
+workflows. Which means:
+
+> **If the engineer stops working and nothing is red, suspect the token before
+> you suspect the code.**
+
+The heartbeat now says so on any report where it issued a claim without a PAT.
+That warning is the only thing standing between you and an afternoon of reading
+correct code looking for a bug that is not in it.
+
+
 ## What guide this follows
 
 None. There isn't one worth following yet, and anyone selling *the* playbook for
