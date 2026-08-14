@@ -3,6 +3,12 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # Rebuild after every heartbeat so /hq reflects the current board rather than
+  # the last code change. The `pages` concurrency group below means an overlapping
+  # rebuild cancels the older one, so a slow build cannot pile up.
+  workflow_run:
+    workflows: ["Company heartbeat"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +31,12 @@ jobs:
       - name: Install
         run: npm ci
       - name: Build
+        env:
+          # /hq reads the board at build time. The token lifts the API rate limit
+          # and COMPANY_PAUSED is the same value the dispatcher reads, so the
+          # page and the heartbeat cannot disagree about whether work is running.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPANY_PAUSED: ${{ vars.COMPANY_PAUSED }}
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

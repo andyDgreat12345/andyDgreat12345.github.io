@@ -5,9 +5,15 @@ import Header from '../components/Header.astro';
 interface Props {
   title?: string;
   description?: string;
+  /** Operational pages (e.g. /hq) opt out of indexing — they are internal, not content. */
+  noindex?: boolean;
 }
 
-const { title = 'Personal Site', description = 'Projects, work, and achievements.' } = Astro.props;
+const {
+  title = 'Personal Site',
+  description = 'Projects, work, and achievements.',
+  noindex = false,
+} = Astro.props;
 const year = new Date().getFullYear();
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : Astro.url.pathname;
 ---
@@ -19,8 +25,9 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={description} />
-    <!-- indexable: the site is meant to be found and shared -->
-    <meta name="robots" content="index, follow" />
+    <!-- indexable: the site is meant to be found and shared. Operational pages
+         opt out — they are internal state, not content worth ranking. -->
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
     <link rel="canonical" href={canonical} />
     <!-- share cards (Open Graph + Twitter) so pasted links show a real preview -->
     <meta property="og:type" content="website" />
