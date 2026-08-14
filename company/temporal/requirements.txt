@@ -1,0 +1,4 @@
+# The Temporal path. The Tier 0 dispatcher (company/ops/dispatch.py) deliberately
+# has no dependencies at all, so a bare runner can still dispatch if this layer is
+# down — keep it that way.
+temporalio>=1.31,<2

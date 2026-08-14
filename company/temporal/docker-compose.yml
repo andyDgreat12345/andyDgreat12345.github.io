@@ -1,0 +1,53 @@
+# A whole company clock on a laptop: dev server plus worker.
+#
+#   COMPANY_REPO=owner/repo GITHUB_TOKEN=ghp_... docker compose up
+#   docker compose run --rm worker python company/temporal/schedule.py create
+#
+# The dev server keeps state in memory, so everything resets on restart. That is
+# right for trying things and wrong for running the company — for the real thing
+# use Temporal Cloud and the systemd unit next to this file.
+
+services:
+  temporal:
+    image: temporalio/auto-setup:1.29.0
+    environment:
+      - DB=sqlite
+      - SKIP_DEFAULT_NAMESPACE_CREATION=false
+    ports:
+      - "7233:7233"
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ui:
+    image: temporalio/ui:2.34.0
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "8233:8080"      # the reason to run this at all — watch the heartbeats
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  worker:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ../..:/app:ro
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - COMPANY_REPO=${COMPANY_REPO:?set COMPANY_REPO=owner/repo}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:?set GITHUB_TOKEN}
+      # Uncomment to bring the company up paused, which is the safer way to
+      # try this against a repo that has real tickets on it.
+      # - COMPANY_PAUSED=1
+    command: >
+      sh -c "pip install --quiet -r company/temporal/requirements.txt &&
+             python company/temporal/worker.py"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped

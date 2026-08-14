@@ -1,0 +1,34 @@
+# Fly.io deployment for the worker. The low-ops alternative to a VPS — no box to
+# administer, but also no room for the things STACK.md adds later (local models,
+# self-hosted Langfuse, a self-hosted Actions runner). If you expect to follow the
+# build order, take the VPS instead. See RUNBOOK.md.
+#
+#   fly launch --no-deploy --copy-config --config company/deploy/fly.toml
+#   fly secrets set GITHUB_TOKEN=... TEMPORAL_API_KEY=...
+#   fly deploy --config company/deploy/fly.toml --dockerfile company/deploy/Dockerfile
+
+app = "company-hq-worker"
+primary_region = "fra"          # put it near Temporal Cloud's region
+
+[build]
+  dockerfile = "company/deploy/Dockerfile"
+
+[env]
+  COMPANY_REPO = "andyDgreat12345/andyDgreat12345.github.io"
+  TEMPORAL_NAMESPACE = ""       # set to <namespace>.<account>
+  TEMPORAL_ADDRESS = ""         # <namespace>.<account>.tmprl.cloud:7233
+  # Start paused; flip to "0" with `fly secrets set COMPANY_PAUSED=0` once you
+  # have watched a heartbeat and believe it.
+  COMPANY_PAUSED = "1"
+
+# GITHUB_TOKEN and TEMPORAL_API_KEY are set with `fly secrets set`, never here.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"              # the worker is tiny; 256mb also works
+
+# The worker polls outbound only and serves no traffic, so it has no [http_service]
+# and no public address. auto_stop would be wrong here: a stopped worker means a
+# silent company, which is the failure mode that matters most.
+[processes]
+  app = "python company/temporal/worker.py"
