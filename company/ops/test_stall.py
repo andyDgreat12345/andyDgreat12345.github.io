@@ -99,6 +99,33 @@ def test_stage_is_read_off_the_labels():
     assert stall.stage_of({"labels": [{"name": "dept:site"}]}) is None
 
 
+def test_the_shift_report_is_not_a_stalled_ticket():
+    """The shift report is an append-only log the heartbeat comments on. It
+    never changes stage, so it looks permanently stuck — and on a quiet board it
+    would be the *only* thing there, firing a stall alarm about the very log
+    that proves the company is running."""
+    board = [ticket(6, None, 30, title="Shift report — 2026-08-14")]
+    verdict = stall.assess(board, NOW)
+    assert not verdict["stalled"], verdict["reason"]
+    assert verdict["reason"] == "board is empty"
+
+
+def test_the_alarm_does_not_stall_on_itself():
+    board = [ticket(9, None, 30, title=stall.ALERT_TITLE)]
+    assert not stall.assess(board, NOW)["stalled"]
+
+
+def test_paperwork_does_not_hide_a_real_stall():
+    """The filter must remove the log, not the ticket sitting behind it."""
+    board = [
+        ticket(6, None, 30, title="Shift report — 2026-08-14"),
+        ticket(7, "status:ready", 30),
+    ]
+    verdict = stall.assess(board, NOW)
+    assert verdict["stalled"]
+    assert [t["number"] for t in verdict["stuck"]] == [7]
+
+
 def test_excused_labels_are_real_labels():
     """A typo here would silently disable the exemptions, so assert they exist
     in the vocabulary the rest of the company uses."""
@@ -117,6 +144,12 @@ def main() -> int:
         except AssertionError as exc:
             failed += 1
             print(f"  FAIL  {fn.__name__}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            # An unexpected exception is a failure, not a reason to abort the
+            # run. Aborting hides every test after the first broken one, which
+            # is exactly when you most want the full picture.
+            failed += 1
+            print(f"  ERROR {fn.__name__}: {type(exc).__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
 

@@ -1,0 +1,227 @@
+name: Company engineer
+
+# The engineer, as an OpenHands agent.
+#
+# Event-driven, not scheduled, and that is deliberate twice over. The company is
+# already event-shaped — the fan-out applying `claim:engineer` IS the signal, so
+# a poller would only add latency. And `claude-code-action` has a documented bug
+# where subscription auth fails specifically under `schedule` triggers; not being
+# a scheduled workflow sidesteps that whole class of problem.
+#
+# Nothing here decides what to work on. The heartbeat claims a ticket and writes
+# the work order; this only answers.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to work (bypasses the label trigger)
+        required: true
+        type: string
+
+# The engineer holds one ticket at a time — the same ROLE_CAPACITY the fan-out
+# enforces. `cancel-in-progress: false` because killing a run mid-edit leaves a
+# half-written branch and a claim nobody released.
+concurrency:
+  group: company-engineer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: May the engineer start?
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+      issue: ${{ steps.check.outputs.issue }}
+      refuse: ${{ steps.check.outputs.refuse }}
+    steps:
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name }}
+          NUMBER: ${{ github.event.issue.number || inputs.issue }}
+          LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
+          PAUSED: ${{ vars.COMPANY_PAUSED }}
+        run: |
+          set -euo pipefail
+
+          # The kill switch, before anything else. Always. See CHARTER.md.
+          if [ "${PAUSED:-0}" = "1" ]; then
+            echo "COMPANY_PAUSED is set — starting nothing." >> "$GITHUB_STEP_SUMMARY"
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          if [ "$EVENT" = "issues" ] && [ "$LABEL" != "claim:engineer" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0   # not our label; nothing to say
+          fi
+
+          # needs:human outranks a claim. If both are somehow present the ticket
+          # is the owner's, and an agent touching it is the failure this label exists
+          # to prevent.
+          if echo "$LABELS" | grep -q '"needs:human"'; then
+            echo "#$NUMBER wears needs:human — leaving it alone." >> "$GITHUB_STEP_SUMMARY"
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # The data policy, mechanically. This engineer runs on DeepSeek — a
+          # third party — and CHARTER.md says personal data never reaches one.
+          # These two departments hold real applicant and user records, so the
+          # refusal happens HERE, before a prompt is composed or a key is used.
+          # Asking the agent nicely is not a control; not starting it is.
+          if echo "$LABELS" | grep -qE '"dept:(admissions|casewriter)"'; then
+            {
+              echo "REFUSED: #$NUMBER belongs to a personal-data department."
+              echo "The engineer runs on a third-party model and may not see these"
+              echo "tickets. Escalating to the owner instead — see CHARTER.md."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "refuse=true" >> "$GITHUB_OUTPUT"
+            echo "issue=$NUMBER" >> "$GITHUB_OUTPUT"
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          echo "issue=$NUMBER" >> "$GITHUB_OUTPUT"
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+  # A refusal that only appears in a workflow log is a refusal nobody sees. The
+  # ticket has to come back to the owner wearing the reason, and it has to lose
+  # the claim — otherwise it sits locked for the full lease over a decision that
+  # was made in two seconds.
+  refuse:
+    name: Refused — personal data
+    needs: gate
+    if: needs.gate.outputs.refuse == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          issue = os.environ["ISSUE"]
+          token = os.environ["GITHUB_TOKEN"]
+
+          def api(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body else None
+              req = urllib.request.Request(
+                  f"https://api.github.com{path}", data=data, method=method)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              if data:
+                  req.add_header("Content-Type", "application/json")
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      raw = r.read()
+              except urllib.error.HTTPError as exc:
+                  if method == "DELETE" and exc.code == 404:
+                      return None       # already off; that is the state we wanted
+                  raise
+              return json.loads(raw) if raw else None
+
+          api(f"/repos/{repo}/issues/{issue}/labels", "POST",
+              {"labels": ["needs:human"]})
+          api(f"/repos/{repo}/issues/{issue}/labels/"
+              + urllib.parse.quote("claim:engineer"), "DELETE")
+          api(f"/repos/{repo}/issues/{issue}/comments", "POST", {"body":
+              "**Refused — personal data.**\n\n"
+              "This ticket belongs to a department that holds real records, and "
+              "the automated engineer runs on a third-party model. `CHARTER.md` "
+              "says personal data never reaches one, so the run was stopped "
+              "before a prompt was composed or the API key was used.\n\n"
+              "This is the policy working, not a bug. The ticket is yours: work "
+              "it yourself, or reclassify it if the data involved is synthetic "
+              "or public."})
+          print("refused and escalated")
+          PY
+
+  work:
+    name: Engineer
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30      # a bounded run is the cheapest cost control there is
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      ISSUE: ${{ needs.gate.outputs.issue }}
+      BRANCH: agent/issue-${{ needs.gate.outputs.issue }}
+    steps:
+      # PAT rather than GITHUB_TOKEN, and this is not a preference. A PR opened
+      # with GITHUB_TOKEN does not trigger other workflows, so CI would never run
+      # on the engineer's PRs — the gate would look green because nothing ever
+      # examined it. That is the quietest way this whole design could fail.
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Pinned, not `@main`. The upstream example curls a script from a third
+      # party's default branch and executes it in a job holding write access and
+      # an API key; pinning is the difference between a dependency and an open
+      # door. Bump these deliberately — see company/workers/README.md.
+      - name: Install the OpenHands agent
+        run: |
+          pip install --quiet \
+            "openhands-sdk==1.42.1" \
+            "openhands-tools==1.42.1"
+
+      - name: Compose the work order
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          python company/ops/work_order.py --issue "$ISSUE" > /tmp/prompt.txt
+          echo "--- prompt ($(wc -c < /tmp/prompt.txt) bytes) ---"
+          cat /tmp/prompt.txt
+
+      - name: Work the ticket
+        continue-on-error: true      # handoff must run even when the agent dies
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          # V4 Flash, not Pro. Cheaper AND better suited: Flash beats Pro on
+          # every agentic benchmark DeepSeek published, at roughly a third of the
+          # output price — and an OpenHands run is exactly that, a long agentic
+          # loop rather than one hard answer. LiteLLM routing, so the provider/
+          # prefix matters. Swap to deepseek/deepseek-v4-pro here if a ticket
+          # proves too hard for it; that is the only change needed.
+          LLM_MODEL: deepseek/deepseek-v4-flash
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config user.name "company-engineer"
+          git config user.email "engineer@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          python company/workers/engineer_agent.py /tmp/prompt.txt
+
+      # Judged by artifact, not by assertion. The agent does not get to report
+      # its own success — ORG.md says a run with no PR did not happen.
+      - name: Hand the ticket back
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          python company/ops/handoff.py \
+            --issue "$ISSUE" --branch "$BRANCH" --apply \
+            | tee -a "$GITHUB_STEP_SUMMARY"

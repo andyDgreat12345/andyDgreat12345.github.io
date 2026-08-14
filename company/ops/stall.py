@@ -32,6 +32,15 @@ from board import STAGES, labels_of  # noqa: E402
 ALERT_TITLE = "Watchdog: board has stalled"
 DEFAULT_THRESHOLD_HOURS = 6
 
+# The company's own paperwork is not work. The shift report is an append-only
+# log the heartbeat comments on, and the watchdog alert is this file's own
+# output; neither ever changes stage, so both look permanently stuck.
+#
+# Without this the first quiet day fires a stall alarm about the log that proves
+# the company is running — and a false alarm gets muted within a week, which
+# costs more than never having built the alarm.
+NOT_TICKETS = ("Shift report — ", ALERT_TITLE)
+
 # Tickets in these states are not stalled — they are correctly waiting.
 # `needs:human` is the company asking the owner a question; `status:blocked`
 # is a documented dead end. Counting either as a stall would train you to
@@ -41,6 +50,11 @@ EXCUSED = {"needs:human", "status:blocked"}
 
 def stage_of(issue: dict) -> str | None:
     return next((n for n in labels_of(issue) if n in STAGES), None)
+
+
+def is_ticket(title: str) -> bool:
+    """Is this open issue actual work, or the company's own paperwork?"""
+    return not any(title.startswith(prefix) for prefix in NOT_TICKETS)
 
 
 def assess(tickets: list[dict], now: datetime, threshold_hours: int = DEFAULT_THRESHOLD_HOURS,
@@ -54,6 +68,11 @@ def assess(tickets: list[dict], now: datetime, threshold_hours: int = DEFAULT_TH
 
     if paused:
         return {"stalled": False, "reason": "company is paused", "stuck": []}
+
+    # Filtered here rather than only at the fetch, so the decision cannot be
+    # bypassed by a caller that assembles the board some other way. The pure
+    # function is the one that has to be right.
+    tickets = [t for t in tickets if is_ticket(t.get("title", ""))]
     if not tickets:
         return {"stalled": False, "reason": "board is empty", "stuck": []}
 
@@ -200,8 +219,8 @@ def main() -> int:
     tickets = []
     for issue in gh.open_issues():
         names = labels_of(issue)
-        if issue["title"] == ALERT_TITLE:
-            continue  # the alarm is not a ticket, and would otherwise stall itself
+        if not is_ticket(issue["title"]):
+            continue  # skip the fetch cost; assess() enforces this regardless
         tickets.append({
             "number": issue["number"],
             "title": issue["title"],
