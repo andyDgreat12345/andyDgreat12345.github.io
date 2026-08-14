@@ -10,7 +10,7 @@ worker finds its own claim and reads the order cold.** Nothing pushes work into
 a worker, and no worker chooses what to work on. That separation is what makes
 "no AI is the boss" mechanical rather than aspirational.
 
-## The engineer: OpenHands on DeepSeek V4 Pro
+## The engineer: OpenHands on DeepSeek V4 Flash
 
 Built. `.github/workflows/company-engineer.yml` runs on `issues.labeled`, so the
 moment the fan-out applies `claim:engineer` the engineer starts — no polling, no
@@ -29,8 +29,13 @@ Repository → Settings → Secrets and variables → Actions:
 | Secret | What it is |
 |---|---|
 | `LLM_API_KEY` | DeepSeek API key |
-| `PAT_TOKEN` | GitHub PAT, read/write on contents, issues, pull requests, workflows |
+| `PAT_TOKEN` | GitHub PAT, read/write on **contents, issues, pull requests** — and deliberately NOT workflows |
 | `PAT_USERNAME` | your GitHub username |
+
+Withholding the **workflows** permission is deliberate. The work order tells the
+engineer never to edit `.github/workflows/`; withholding the scope makes that
+mechanical rather than a request, so the push simply fails if it ever tries. A
+worker that can rewrite its own gates has none.
 
 **The PAT is not optional, and the reason is subtle enough to be worth stating.**
 A pull request opened using the default `GITHUB_TOKEN` **does not trigger other
