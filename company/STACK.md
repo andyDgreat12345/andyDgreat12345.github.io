@@ -65,10 +65,20 @@ markets itself explicitly at agents.
 - **Restate** — virtual objects per agent session, exactly-once tool dispatch. The
   most elegant model for per-agent state; smallest ecosystem.
 
-**Recommendation:** Temporal Cloud. It is managed, so it does not become a second
-job, and being polyglot means the Python data work in the market repo and the
-TypeScript site work live under one scheduler. Inngest is the right answer if you
-would rather not think about workflow semantics at all.
+**Recommendation:** Temporal, **self-hosted**, at least to begin with. Being
+polyglot means the Python data work in the market repo and the TypeScript site
+work live under one scheduler.
+
+The pricing is the deciding factor and it cuts against the obvious choice:
+Temporal Cloud starts at **$100/month with no free tier**. A 15-minute heartbeat
+produces a few tens of thousands of Actions against a 1,000,000 Action
+allowance — enterprise rates for a rounding error, and more than everything else
+in this document put together. The $1,000 of trial credits make Cloud a fine
+place to *try* it, but that is a cliff about ten months out.
+
+Self-hosting is two containers and a Postgres. Move to Cloud when losing workflow
+history would genuinely hurt, not before. Inngest is the right answer if you would
+rather not think about workflow semantics at all.
 
 ### 2. Sandboxes — where agents are allowed to run
 
@@ -233,7 +243,7 @@ immediately.
 | Layer | Pick | Monthly |
 |---|---|---|
 | Coding agents | Claude Max, plus Codex | $150–250 |
-| Durable execution | Temporal Cloud (or self-hosted, ~free) | $0–200 |
+| Durable execution | Temporal self-hosted (Cloud is $100/mo minimum) | $10–20 |
 | Sandboxes | E2B + Modal, usage-based | $25–150 |
 | Gateway | OpenRouter → self-hosted LiteLLM | $0–20 |
 | Model inference | Claude API + bulk tier + Codex | $100–500 |

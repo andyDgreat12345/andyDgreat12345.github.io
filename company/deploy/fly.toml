@@ -15,8 +15,15 @@ primary_region = "fra"          # put it near Temporal Cloud's region
 
 [env]
   COMPANY_REPO = "andyDgreat12345/andyDgreat12345.github.io"
-  TEMPORAL_NAMESPACE = ""       # set to <namespace>.<account>
-  TEMPORAL_ADDRESS = ""         # <namespace>.<account>.tmprl.cloud:7233
+  # Self-hosted Temporal on Fly's private network — see fly-temporal/fly.toml.
+  # No TLS and no API key needed: 6PN traffic never leaves Fly, and the server
+  # has no public address at all.
+  TEMPORAL_ADDRESS = "company-temporal.internal:7233"
+  TEMPORAL_NAMESPACE = "default"
+  # For Temporal Cloud instead, use:
+  #   TEMPORAL_ADDRESS = "<namespace>.<account>.tmprl.cloud:7233"
+  #   TEMPORAL_NAMESPACE = "<namespace>.<account>"
+  # and `fly secrets set TEMPORAL_API_KEY=...`
   # Start paused; flip to "0" with `fly secrets set COMPANY_PAUSED=0` once you
   # have watched a heartbeat and believe it.
   COMPANY_PAUSED = "1"
