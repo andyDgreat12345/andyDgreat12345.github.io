@@ -1,0 +1,38 @@
+name: Company bootstrap
+
+# One-time setup, re-runnable. Creates the label vocabulary the dispatcher routes
+# on. Run it from the Actions tab — including from a phone, which is the point:
+# the alternative was needing the `gh` CLI on a laptop.
+#
+#   Actions → Company bootstrap → Run workflow
+#
+# Idempotent. Re-run it after changing company/ops/labels.py and existing labels
+# are updated in place rather than duplicated.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Which repo to label (blank = this one). Use owner/name to set up a sibling repo."
+        type: string
+        default: ""
+
+permissions:
+  issues: write        # labels live under the issues permission
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create labels
+        env:
+          # For a sibling repo this default token is not enough — it is scoped to
+          # this repository. Add a fine-grained PAT as a secret named
+          # COMPANY_ADMIN_TOKEN and it will be used when present.
+          GITHUB_TOKEN: ${{ secrets.COMPANY_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          python3 company/ops/labels.py \
+            --repo "${{ inputs.repo || github.repository }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
