@@ -39,6 +39,7 @@ jobs:
       go: ${{ steps.check.outputs.go }}
       issue: ${{ steps.check.outputs.issue }}
       refuse: ${{ steps.check.outputs.refuse }}
+      configured: ${{ steps.check.outputs.configured }}
     steps:
       - id: check
         env:
@@ -47,6 +48,11 @@ jobs:
           NUMBER: ${{ github.event.issue.number || inputs.issue }}
           LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
           PAUSED: ${{ vars.COMPANY_PAUSED }}
+          # Presence only — the values never enter the log. An empty string here
+          # means the secret is unset; a non-empty one says nothing about what it
+          # contains.
+          LLM_KEY_SET: ${{ secrets.LLM_API_KEY != '' && 'y' || '' }}
+          PAT_SET: ${{ secrets.PAT_TOKEN != '' && 'y' || '' }}
         run: |
           set -euo pipefail
 
@@ -82,6 +88,18 @@ jobs:
             echo "refuse=true" >> "$GITHUB_OUTPUT"
             echo "issue=$NUMBER" >> "$GITHUB_OUTPUT"
             echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Is the engineer actually configured? Checked HERE rather than in the
+          # work job, because a missing secret discovered mid-run surfaces as a
+          # failed run, and the handoff correctly records a failed run as a
+          # failed ATTEMPT — spending one of the ticket's three lives on a
+          # misconfiguration that has nothing to do with the ticket. Three of
+          # those and a perfectly good ticket is escalated as unworkable.
+          if [ -z "$LLM_KEY_SET" ] || [ -z "$PAT_SET" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
           echo "issue=$NUMBER" >> "$GITHUB_OUTPUT"
@@ -144,10 +162,31 @@ jobs:
           print("refused and escalated")
           PY
 
+  # Not configured. Release the claim WITHOUT charging an attempt: nothing was
+  # tried, so nothing failed. The ticket goes straight back on the board and is
+  # picked up again the moment the secrets exist.
+  unconfigured:
+    name: Engineer not configured
+    needs: gate
+    if: needs.gate.outputs.go == 'true' && needs.gate.outputs.configured != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python company/ops/handoff.py \
+            --issue "${{ needs.gate.outputs.issue }}" \
+            --branch "unused" --not-attempted --apply \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1     # red, so it is visible rather than a quiet no-op
+
   work:
     name: Engineer
     needs: gate
-    if: needs.gate.outputs.go == 'true'
+    if: needs.gate.outputs.go == 'true' && needs.gate.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30      # a bounded run is the cheapest cost control there is
     permissions:

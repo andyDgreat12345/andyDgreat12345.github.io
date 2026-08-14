@@ -5,13 +5,13 @@ now*, which is a different and more dangerous question — it is the only part o
 the company where two workers can collide, or where a ticket can be held by
 something that has already died.
 
-The shape is forced by how the workers actually run. The engineer is a Claude
-Code Routine: it wakes on a schedule, with no memory of the heartbeat that
-scheduled it, does one thing, and stops. Nothing can push work to it. So the
-heartbeat cannot dispatch — it can only leave a claim on the board and a brief
-the worker will read cold, and the worker pulls.
+The shape is forced by how the workers actually run. The engineer is an
+OpenHands agent in a GitHub Actions job: it starts cold, with no memory of the
+heartbeat that claimed its ticket, does one thing, and stops. So the heartbeat
+cannot dispatch — it leaves a claim on the board and a brief the worker reads
+cold, and the worker answers.
 
-That makes the claim label the company's only lock, which forces three rules:
+That makes the claim label the company's only lock, which forces four rules:
 
   * **A claim is a lease, not a lock.** It expires. A lock with no expiry
     deadlocks the moment a worker dies mid-ticket, and these workers die
@@ -20,10 +20,12 @@ That makes the claim label the company's only lock, which forces three rules:
     not finish. If that were free, a ticket that reliably kills its worker would
     be re-claimed forever, which is the overnight retry storm MAX_ATTEMPTS
     exists to prevent.
-  * **Capacity is per role, not per board.** A Routine is one session and can
-    work one ticket per wake. Claiming four tickets for it produces one ticket
-    of progress and three expired leases, on a board that looked busy the whole
-    time.
+  * **Capacity is per role, not per board.** One job works one ticket. Claiming
+    four tickets for a role produces one ticket of progress and three expired
+    leases, on a board that looked busy the whole time.
+  * **A role with no worker is never claimed for.** Otherwise the lease expires
+    unworked, the attempt counter advances, and the ticket escalates as though
+    the work had been tried and failed. A vacancy is not a failure.
 
 Pure, like board.py — no clock, no network — so the Temporal workflow can call
 it inside the sandbox and every branch is testable.
@@ -39,18 +41,18 @@ CLAIM_PREFIX = "claim:"
 
 # How long a worker may hold a ticket before the lease is considered dead.
 #
-# Tuned to the slowest worker, not the average one: Claude Code Routines run at
-# a minimum interval of one hour, so a lease shorter than that would reap work
-# that is merely waiting for its next wake. Ninety minutes is one wake plus room
-# to actually finish.
+# Tuned to the slowest worker, not the average one. The engineer's job has a
+# 30-minute timeout and is queued behind whatever else Actions is running, so a
+# short lease would reap work that is merely waiting for a runner. Ninety
+# minutes is one full run plus room for the queue.
 LEASE_MINUTES = 90
 
 # How many tickets each role may hold at once.
 #
-# The engineer's 1 is not conservatism, it is arithmetic: one Routine session
-# does one ticket per wake, so a second claim is guaranteed to expire unworked.
-# The reviewer gets 2 because it runs as an ordinary API call and reviews are
-# short, cheap, and genuinely parallel.
+# The engineer's 1 is not conservatism, it is arithmetic: the workflow has a
+# concurrency group of one, so a second claim would sit waiting and expire
+# unworked. The reviewer gets 2 because a review is a short API call rather than
+# a sandboxed run, and those are genuinely parallel.
 ROLE_CAPACITY = {
     "analyst": 1,
     "engineer": 1,
@@ -60,6 +62,26 @@ ROLE_CAPACITY = {
     "comms": 1,
 }
 DEFAULT_CAPACITY = 1
+
+# Which roles actually have something that answers to a claim.
+#
+# This is the difference between a vacancy and a failure, and getting it wrong
+# is expensive in a specific way: claiming a ticket for a role nobody has hired
+# means the lease expires unworked, the attempt counter advances, and after
+# three cycles the ticket escalates wearing `needs:human` as though the work had
+# been TRIED AND FAILED. It was never attempted. The board would fill with
+# false failures on tickets whose only problem is that the company has not
+# hired for that stage yet.
+#
+# So an unhired stage is reported as waiting on the owner — which is what it is,
+# and which the stall alarm already knows not to alarm about.
+#
+# Add a role here the moment a worker exists for it, and not before. The cost of
+# being late is a ticket that waits; the cost of being early is a ticket that
+# lies about having failed.
+HIRED = {
+    "engineer",   # .github/workflows/company-engineer.yml — OpenHands on DeepSeek
+}
 
 
 def claim_label(role: str) -> str:
@@ -80,7 +102,8 @@ def capacity_for(role: str) -> int:
 
 def fan_out(plan: list[dict], held: list[dict], now: datetime,
             allows_capable: bool = True,
-            lease_minutes: int = LEASE_MINUTES) -> tuple[list[dict], list[dict], list[dict]]:
+            lease_minutes: int = LEASE_MINUTES,
+            hired: set[str] | None = None) -> tuple[list[dict], list[dict], list[dict]]:
     """Decide which planned work to claim, and which dead leases to release.
 
     `held` is what the board says is already claimed: dicts of
@@ -88,8 +111,13 @@ def fan_out(plan: list[dict], held: list[dict], now: datetime,
     label event that applied the claim — not `updated_at`, which also moves on
     comments and would keep a dead lease looking alive.
 
+    `hired` names the roles that actually have a worker; it defaults to HIRED
+    and is injectable so the capacity, lease and budget rules stay testable
+    independently of who happens to be hired this week.
+
     Returns (claims, releases, deferred).
     """
+    hired = HIRED if hired is None else hired
     deadline = now - timedelta(minutes=lease_minutes)
 
     releases = [
@@ -115,6 +143,16 @@ def fan_out(plan: list[dict], held: list[dict], now: datetime,
 
     for entry in plan:
         ref = {"issue": entry["issue"], "role": entry["role"]}
+
+        # Vacancy, not failure. Claiming for a role nobody has hired burns the
+        # ticket's whole retry budget on work that was never attempted.
+        if entry["role"] not in hired:
+            deferred.append({
+                **ref,
+                "why": f"no {entry['role']} hired — this stage is the owner's",
+                "vacancy": True,
+            })
+            continue
 
         holder = live_by_issue.get(entry["issue"])
         if holder is not None:
@@ -255,6 +293,22 @@ def render(claims: list[dict], releases: list[dict], deferred: list[dict]) -> st
             f"- #{r['issue']} — {r['role']} held it {r['held_for_minutes']}m; {r['why']}"
             for r in releases
         ]
-    if deferred:
-        lines += ["", "*Deferred:*"] + [f"- #{d['issue']} — {d['why']}" for d in deferred]
+    # Vacancies are reported apart from deferrals, and as a count. A deferral is
+    # transient — capacity, a lease, the budget — and worth a line each. A
+    # vacancy is a standing fact about the company, and printing the same three
+    # lines every fifteen minutes is how a shift report becomes wallpaper.
+    vacancies = [d for d in deferred if d.get("vacancy")]
+    waiting = [d for d in deferred if not d.get("vacancy")]
+
+    if waiting:
+        lines += ["", "*Deferred:*"] + [f"- #{d['issue']} — {d['why']}" for d in waiting]
+    if vacancies:
+        roles = sorted({d["role"] for d in vacancies})
+        lines += [
+            "",
+            f"*{len(vacancies)} ticket(s) waiting on you* — no "
+            + ", ".join(roles)
+            + " hired: "
+            + ", ".join(f"#{d['issue']}" for d in vacancies),
+        ]
     return "\n".join(lines)

@@ -55,7 +55,8 @@ def test_role_capacity_is_per_role_not_per_board():
     """The engineer is one Routine session — a second claim is guaranteed to
     expire unworked, so it is never issued."""
     plan = [planned(issue=1), planned(issue=2), planned(issue=3, role="reviewer")]
-    claims, _, deferred = assign.fan_out(plan, [], NOW)
+    claims, _, deferred = assign.fan_out(plan, [], NOW,
+                                         hired={"engineer", "reviewer"})
     assert [c["issue"] for c in claims] == [1, 3], claims
     assert "at capacity" in deferred[0]["why"]
 
@@ -68,8 +69,52 @@ def test_existing_claims_count_against_capacity():
 
 def test_a_reviewer_may_hold_two():
     plan = [planned(issue=i, role="reviewer") for i in (1, 2, 3)]
-    claims, _, _ = assign.fan_out(plan, [], NOW)
+    claims, _, _ = assign.fan_out(plan, [], NOW, hired={"reviewer"})
     assert len(claims) == 2
+
+
+# ---------- vacancies ----------
+
+def test_an_unhired_role_is_not_claimed_for():
+    """The difference between a vacancy and a failure.
+
+    Claiming for a role nobody has hired means the lease expires unworked, the
+    attempt counter advances, and after three cycles the ticket escalates
+    wearing `needs:human` as though the work had been tried and failed. It was
+    never attempted.
+    """
+    claims, _, deferred = assign.fan_out([planned(issue=5, role="sre", tier="mixed")], [], NOW)
+    assert claims == []
+    assert deferred[0]["vacancy"] is True
+    assert "no sre hired" in deferred[0]["why"]
+    assert "owner's" in deferred[0]["why"]
+
+
+def test_the_engineer_is_hired():
+    """The one role with a worker behind it. If this ever fails, the company has
+    quietly stopped being able to do anything at all."""
+    assert "engineer" in assign.HIRED
+    claims, _, _ = assign.fan_out([planned(issue=1, role="engineer")], [], NOW)
+    assert len(claims) == 1
+
+
+def test_a_vacancy_does_not_consume_capacity():
+    """A ticket nobody can work must not block one somebody can."""
+    plan = [planned(issue=1, role="analyst"), planned(issue=2, role="engineer")]
+    claims, _, _ = assign.fan_out(plan, [], NOW)
+    assert [c["issue"] for c in claims] == [2]
+
+
+def test_vacancies_are_reported_as_waiting_on_the_owner():
+    """Not as failures, and counted rather than listed line by line — the same
+    three lines every fifteen minutes is how a shift report becomes wallpaper."""
+    _, _, deferred = assign.fan_out(
+        [planned(issue=5, role="sre", tier="mixed"),
+         planned(issue=6, role="analyst")], [], NOW)
+    text = assign.render([], [], deferred)
+    assert "waiting on you" in text
+    assert "#5" in text and "#6" in text
+    assert "failed" not in text.lower()
 
 
 # ---------- the lease ----------
@@ -125,7 +170,8 @@ def test_degrade_does_not_switch_off_the_sre():
     """Turning off your only diagnostics to save money is how a degraded company
     becomes a dead one."""
     claims, _, _ = assign.fan_out(
-        [planned(issue=1, role="sre", tier="mixed")], [], NOW, allows_capable=False)
+        [planned(issue=1, role="sre", tier="mixed")], [], NOW,
+        allows_capable=False, hired={"sre"})
     assert [c["issue"] for c in claims] == [1]
 
 

@@ -59,6 +59,23 @@ agent reporting its own success is exactly the claim that rule distrusts.
 No PR means a failed attempt and the counter advances. Three failures and the
 ticket gets `needs:human` and is never retried automatically.
 
+## Roles with no worker are never claimed for
+
+`assign.py` keeps a `HIRED` set, and today it contains one name: the engineer.
+
+This matters more than it looks. Claiming a ticket for a role nobody has hired
+means the lease expires unworked, the attempt counter advances, and after three
+cycles the ticket escalates wearing `needs:human` **as though the work had been
+tried and failed**. It was never attempted. The board would fill with false
+failures on tickets whose only problem is that the stage has no worker yet.
+
+So an unhired stage reports as *waiting on you*, which is what it is — and the
+stall alarm already knows not to alarm about that.
+
+Add a role to `HIRED` the moment a worker exists for it, and not before. Being
+late costs a ticket that waits; being early costs a ticket that lies about
+having failed.
+
 ## The reviewer: still you
 
 Not built, and the routing says so — `capable-alt` resolves to `claude-code`, a
@@ -105,6 +122,18 @@ holding write access and an API key — `company/workers/engineer_agent.py` is
 vendored from that example (MIT) precisely so that does not happen here.
 
 Bump the pin deliberately, in a PR, like any other dependency.
+
+## A misconfigured company does not blame the ticket
+
+If `LLM_API_KEY` or `PAT_TOKEN` is missing, the gate notices **before** the run
+starts, releases the claim, and leaves the attempt counter alone. The ticket
+goes straight back on the board and is picked up again the moment the secret
+exists.
+
+The alternative is worse than it sounds: a missing secret discovered mid-run
+looks like a failed run, a failed run is a failed attempt, and three of those
+escalate a perfectly good ticket as unworkable. The ticket would be blamed for
+the company's own setup.
 
 ## Known gaps
 
