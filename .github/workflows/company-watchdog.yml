@@ -18,6 +18,9 @@ permissions:
   issues: write
 
 jobs:
+  # Two different silences, two different checks. `check` catches a clock that
+  # stopped; `stall` catches a clock that runs and moves nothing. The second is
+  # the one that looks like health, so it needs its own alarm.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -77,3 +80,17 @@ jobs:
           })
           print("Opened watchdog alert.")
           PY
+
+  stall:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Has anything on the board moved?
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPANY_PAUSED: ${{ vars.COMPANY_PAUSED }}
+          COMPANY_STALL_HOURS: ${{ vars.COMPANY_STALL_HOURS || '6' }}
+        run: |
+          python3 company/ops/stall.py --apply --repo "${{ github.repository }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
