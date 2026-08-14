@@ -39,40 +39,57 @@ class Model:
     usd_per_m_input: float
     usd_per_m_output: float
     first_party: bool  # may it see personal data? See CHARTER.md.
+    # Subscription-metered work is not billed per token — it draws from a seat
+    # you already pay for. The ledger counts RUNS for these, not dollars, so a
+    # zero price here means "not metered", never "free".
+    subscription: bool = False
 
 
 # Anthropic pricing verified 2026-08. DeepSeek and local figures are
 # order-of-magnitude: exact bulk-tier rates change often and the ledger only
 # needs them accurate enough to trip a cap.
 MODELS = {
+    # The engineer runs as a Claude Code Routine, which authenticates with the
+    # claude.ai subscription rather than an API key — no wallet, no per-token
+    # billing. This is why the capable tier resolves here and not to the API.
+    "claude-code": Model("claude-code", "anthropic", 0.0, 0.0, True, subscription=True),
     "claude-opus-5": Model("claude-opus-5", "anthropic", 5.00, 25.00, True),
     "claude-sonnet-5": Model("claude-sonnet-5", "anthropic", 3.00, 15.00, True),
     "claude-haiku-4-5": Model("claude-haiku-4-5", "anthropic", 1.00, 5.00, True),
     "codex": Model("codex", "openai", 5.00, 25.00, False),
-    "deepseek-chat": Model("deepseek-chat", "deepseek", 0.30, 1.20, False),
-    "deepseek-reasoner": Model("deepseek-reasoner", "deepseek", 0.60, 2.20, False),
+    # DeepSeek V4, 2026. Pro is statistically tied with frontier models on
+    # SWE-bench Verified; Flash beats Pro on agentic benchmarks at roughly a
+    # third of the output price. Prices below are order-of-magnitude — confirm
+    # at signup. The controller only needs them accurate enough to trip a cap.
+    "deepseek-v4-pro": Model("deepseek-v4-pro", "deepseek", 0.60, 2.20, False),
+    "deepseek-v4-flash": Model("deepseek-v4-flash", "deepseek", 0.30, 0.75, False),
     "ollama/qwen": Model("ollama/qwen", "local", 0.0, 0.0, True),
 }
 
 # (tier, data class) → model id. Mirrors the resolution table in MODELS.md.
 ROUTING = {
-    ("capable", PUBLIC): "claude-opus-5",
-    ("capable", PERSONAL): "claude-opus-5",
-    # Diversity yields to data policy: a cross-family reviewer is worth less
-    # than not sending applicant essays to a second vendor. On personal-data
-    # tickets the reviewer is a Claude instance with a review-only prompt.
-    ("capable-alt", PUBLIC): "codex",
-    ("capable-alt", PERSONAL): "claude-opus-5",
-    ("cheap-bulk", PUBLIC): "deepseek-chat",
+    # Capable work runs on the Claude Code subscription, not the API. Same
+    # harness, no wallet, and personal data stays first-party.
+    ("capable", PUBLIC): "claude-code",
+    ("capable", PERSONAL): "claude-code",
+    # The gate. On public work DeepSeek V4 Pro is a different vendor and a
+    # different family, so the reviewer cannot inherit the builder's blind
+    # spots. On personal data diversity yields to the data policy: a
+    # cross-family reviewer is worth less than not sending applicant essays to
+    # a second vendor, so the reviewer is a Claude instance with a review-only
+    # prompt instead.
+    ("capable-alt", PUBLIC): "deepseek-v4-pro",
+    ("capable-alt", PERSONAL): "claude-code",
+    ("cheap-bulk", PUBLIC): "deepseek-v4-flash",
     ("cheap-bulk", PERSONAL): None,  # never routed — see resolve()
-    ("reasoning-bulk", PUBLIC): "deepseek-reasoner",
+    ("reasoning-bulk", PUBLIC): "deepseek-v4-pro",
     ("reasoning-bulk", PERSONAL): None,
     ("local", PUBLIC): "ollama/qwen",
     ("local", PERSONAL): "ollama/qwen",
     # `mixed` is the SRE's tier: cheap polling, capable diagnosis. The runner
     # picks per step; this is the ceiling.
-    ("mixed", PUBLIC): "claude-sonnet-5",
-    ("mixed", PERSONAL): "claude-sonnet-5",
+    ("mixed", PUBLIC): "claude-code",
+    ("mixed", PERSONAL): "claude-code",
 }
 
 # Roles whose work is arithmetic, not judgement. Routing one to a model is a

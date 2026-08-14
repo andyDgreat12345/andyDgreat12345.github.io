@@ -21,8 +21,10 @@ Five tasks. Nothing here needs money or a server.
    highest-leverage hour in the whole plan — it is what makes "no AI is the boss"
    true rather than aspirational.
 4. **Hire two roles.** Engineer and Reviewer. Drop [`roles/02-engineer.md`](roles/02-engineer.md)
-   into a Claude Code cloud session, drop [`roles/03-reviewer.md`](roles/03-reviewer.md)
-   into Codex.
+   into a Claude Code Routine — it authenticates with your claude.ai
+   subscription, so no API wallet is needed — and drop
+   [`roles/03-reviewer.md`](roles/03-reviewer.md) into DeepSeek V4 Pro, which is
+   the different family the gate requires and costs cents per review.
 5. **Run one real ticket.** Something small and genuinely useful — the HQ
    dashboard page on this site is a good first one, because from then on you can
    see the company. Watch every stage. Fix what confused them.
@@ -72,7 +74,7 @@ Order-of-magnitude, monthly. Prices move — re-check before committing.
 |---|---|---|
 | Week 1 | GitHub free tier, existing Claude subscription | **$0** |
 | Weeks 2–3 | Above + DeepSeek API for bulk ingest (a few dollars at real volume) | **$5–10** |
-| Month 2 | Above + small VPS + modest Codex/API credit | **$20–35** |
+| Month 2 | Above + small VPS + DeepSeek credit for review and second attempts | **$20–35** |
 | Month 3 | Above + a managed database if you have outgrown SQLite | **$30–60** |
 
 The dominant variable is not the subscription, it is **how often you wake a

@@ -44,6 +44,9 @@ jobs:
           COMPANY_LEDGER: /tmp/ledger.jsonl
           COMPANY_DAILY_CAP: ${{ vars.COMPANY_DAILY_CAP || '5.00' }}
           COMPANY_MONTHLY_CAP: ${{ vars.COMPANY_MONTHLY_CAP || '100.00' }}
+          # The engineer runs on a subscription, not an API key, so a dollar
+          # cap cannot see it. Runs are the second meter — see MODELS.md.
+          COMPANY_DAILY_RUN_CAP: ${{ vars.COMPANY_DAILY_RUN_CAP || '40' }}
         run: |
           set +e
           python3 company/ops/controller.py report | tee /tmp/report.md \

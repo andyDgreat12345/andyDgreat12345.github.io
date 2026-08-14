@@ -22,12 +22,19 @@ import models
 NOW = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
 
 
-def entry(usd, days_ago=0, ticket=1, role="engineer", measured=True):
+def entry(usd, days_ago=0, ticket=1, role="engineer", measured=True,
+          model="claude-opus-5"):
     return {
         "at": (NOW - timedelta(days=days_ago)).isoformat(),
-        "ticket": ticket, "role": role, "model": "claude-opus-5",
+        "ticket": ticket, "role": role, "model": model,
         "input_tokens": 0, "output_tokens": 0, "usd": usd, "measured": measured,
     }
+
+
+def sub_run(days_ago=0, ticket=1):
+    """One engineer run on the subscription: zero dollars, one unit of a
+    finite allowance."""
+    return entry(0.0, days_ago=days_ago, ticket=ticket, model="claude-code")
 
 
 # ---------- routing: the data policy, mechanically ----------
@@ -131,6 +138,58 @@ def test_yesterdays_spend_does_not_count_against_today():
 def test_empty_ledger_is_ok_not_a_crash():
     v = controller.assess([], NOW, daily_cap=5.0, monthly_cap=100.0)
     assert v.state == "ok" and v.spent_today == 0.0
+
+
+# ---------- the second meter: subscription runs ----------
+
+def test_subscription_work_is_not_invisible_to_the_breaker():
+    """The bug this meter exists for. The engineer runs on a subscription, so
+    every run prices at $0.00 — under a dollars-only cap the company's main
+    worker could run all night and the breaker would report 0% of cap."""
+    all_day = [sub_run(ticket=i) for i in range(60)]
+    v = controller.assess(all_day, NOW, daily_cap=5.0, monthly_cap=100.0, run_cap=40)
+    assert v.spent_today == 0.0          # genuinely no dollars
+    assert v.should_pause, v.reason      # and genuinely stopped anyway
+
+
+def test_run_cap_degrades_before_it_trips():
+    v = controller.assess([sub_run(ticket=i) for i in range(37)], NOW,
+                          daily_cap=5.0, monthly_cap=100.0, run_cap=40)
+    assert v.state == "degrade" and not v.allows_capable
+
+
+def test_the_tightest_meter_decides():
+    """Under budget but out of runs is still stopped, and the reason says which."""
+    v = controller.assess([sub_run(ticket=i) for i in range(40)] + [entry(0.10)],
+                          NOW, daily_cap=5.0, monthly_cap=100.0, run_cap=40)
+    assert v.should_pause and "subscription-run" in v.reason, v.reason
+
+
+def test_metered_models_do_not_count_against_the_run_cap():
+    v = controller.assess([entry(0.01, ticket=i) for i in range(50)], NOW,
+                          daily_cap=5.0, monthly_cap=100.0, run_cap=40)
+    assert v.subscription_runs == 0 and v.state == "ok"
+
+
+def test_an_unknown_model_is_not_assumed_to_be_free():
+    """Guessing which meter an unknown model uses is how a meter goes quiet."""
+    v = controller.assess([entry(0.0, ticket=i, model="who-knows") for i in range(50)],
+                          NOW, daily_cap=5.0, monthly_cap=100.0, run_cap=40)
+    assert v.subscription_runs == 0
+
+
+def test_report_names_the_run_meter_and_its_knob():
+    runs = [sub_run(ticket=i) for i in range(40)]
+    body = controller.render(controller.assess(runs, NOW, daily_cap=5.0,
+                                               monthly_cap=100.0, run_cap=40), runs)
+    assert "Subscription runs: 40 of 40" in body
+    assert "COMPANY_DAILY_RUN_CAP" in body
+
+
+def test_yesterdays_runs_do_not_count_against_today():
+    v = controller.assess([sub_run(days_ago=1, ticket=i) for i in range(50)], NOW,
+                          daily_cap=5.0, monthly_cap=100.0, run_cap=40)
+    assert v.subscription_runs == 0 and v.state == "ok"
 
 
 # ---------- honesty about holes ----------

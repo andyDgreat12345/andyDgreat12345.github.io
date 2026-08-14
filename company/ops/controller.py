@@ -39,6 +39,14 @@ LEDGER = os.environ.get("COMPANY_LEDGER") or os.path.join(
 DAILY_CAP = float(os.environ.get("COMPANY_DAILY_CAP", "5.00"))
 MONTHLY_CAP = float(os.environ.get("COMPANY_MONTHLY_CAP", "100.00"))
 
+# Subscription work — the engineer on Claude Code — is not billed per token, so
+# a dollar cap cannot see it. Left alone, the company's main worker would be
+# invisible to its own breaker. It is metered in RUNS instead: the subscription
+# has its own daily run allowance, and burning it at 03:00 means no engineer
+# when the owner wakes up. Exhausting a seat is not free just because the
+# marginal token is.
+DAILY_RUN_CAP = int(os.environ.get("COMPANY_DAILY_RUN_CAP", "40"))
+
 WARN_AT = 0.70   # comment on the shift report
 DEGRADE_AT = 0.90  # refuse new capable-tier work; cheap and local continue
 TRIP_AT = 1.00   # set COMPANY_PAUSED=1 and escalate
@@ -73,6 +81,10 @@ class Verdict:
     reason: str
     unmeasured_runs: int = 0
     anomalies: list = field(default_factory=list)
+    # Subscription work costs no dollars and is capped separately — see
+    # DAILY_RUN_CAP. Counted here so the report shows both meters.
+    subscription_runs: int = 0
+    run_cap: int = DAILY_RUN_CAP
 
     @property
     def allows_capable(self) -> bool:
@@ -140,7 +152,8 @@ def record_unmeasured(ticket: int, role: str, model_id: str,
 
 
 def assess(entries: list[dict], now: datetime,
-           daily_cap: float = DAILY_CAP, monthly_cap: float = MONTHLY_CAP) -> Verdict:
+           daily_cap: float = DAILY_CAP, monthly_cap: float = MONTHLY_CAP,
+           run_cap: int = DAILY_RUN_CAP) -> Verdict:
     """Decide the spend state. Pure — no clock, no file, no network."""
     today = now.date()
     month_start = today.replace(day=1)
@@ -154,6 +167,15 @@ def assess(entries: list[dict], now: datetime,
     spent_today = sum(e["usd"] for e in todays)
     spent_month = sum(e["usd"] for e in months)
     unmeasured = sum(1 for e in todays if not e.get("measured", True))
+
+    # A model id the price table has never heard of is not counted as a
+    # subscription run — it is counted as unmeasured, below, because guessing
+    # which meter an unknown model uses is how a meter goes quiet.
+    def is_subscription(e: dict) -> bool:
+        m = MODELS.get(e.get("model", ""))
+        return bool(m and m.subscription)
+
+    subscription_runs = sum(1 for e in todays if is_subscription(e))
 
     # Anomalies are judged against the trailing week, so a single expensive day
     # does not become the new normal by raising its own baseline.
@@ -170,19 +192,27 @@ def assess(entries: list[dict], now: datetime,
                 if e["usd"] > median * ANOMALY_MULTIPLE
             ]
 
-    daily_frac = spent_today / daily_cap if daily_cap else 0.0
-    monthly_frac = spent_month / monthly_cap if monthly_cap else 0.0
-    frac = max(daily_frac, monthly_frac)
-    which = "daily" if daily_frac >= monthly_frac else "monthly"
+    # Three meters, one state machine. The tightest one decides — a company
+    # that is under budget but out of engineer runs is just as stopped as one
+    # that is out of money, and it should say so in the same words.
+    meters = [
+        ("daily", spent_today / daily_cap if daily_cap else 0.0,
+         f"${spent_today:.2f} of ${daily_cap:.2f} today"),
+        ("monthly", spent_month / monthly_cap if monthly_cap else 0.0,
+         f"${spent_month:.2f} of ${monthly_cap:.2f} this month"),
+        ("subscription-run", subscription_runs / run_cap if run_cap else 0.0,
+         f"{subscription_runs} of {run_cap} subscription runs today"),
+    ]
+    which, frac, detail = max(meters, key=lambda m: m[1])
 
     if frac >= TRIP_AT:
-        state, reason = "tripped", f"{which} cap reached (${spent_today:.2f} today)"
+        state, reason = "tripped", f"{which} cap reached ({detail})"
     elif frac >= DEGRADE_AT:
-        state, reason = "degrade", f"{frac:.0%} of the {which} cap — capable tier held"
+        state, reason = "degrade", f"{frac:.0%} of the {which} cap — capable tier held ({detail})"
     elif frac >= WARN_AT:
-        state, reason = "warn", f"{frac:.0%} of the {which} cap"
+        state, reason = "warn", f"{frac:.0%} of the {which} cap ({detail})"
     else:
-        state, reason = "ok", f"{frac:.0%} of the {which} cap"
+        state, reason = "ok", f"{frac:.0%} of the {which} cap ({detail})"
 
     return Verdict(
         spent_today=round(spent_today, 4),
@@ -190,6 +220,7 @@ def assess(entries: list[dict], now: datetime,
         daily_cap=daily_cap, monthly_cap=monthly_cap,
         state=state, reason=reason,
         unmeasured_runs=unmeasured, anomalies=anomalies,
+        subscription_runs=subscription_runs, run_cap=run_cap,
     )
 
 
@@ -201,6 +232,10 @@ def render(v: Verdict, entries_today: list[dict]) -> str:
         f"- Today: ${v.spent_today:.2f} of ${v.daily_cap:.2f}",
         f"- Month: ${v.spent_month:.2f} of ${v.monthly_cap:.2f}",
         f"- Runs today: {len(entries_today)}",
+        # Named separately because $0.00 next to it invites the wrong
+        # conclusion. These runs cost no dollars and are still finite.
+        f"- Subscription runs: {v.subscription_runs} of {v.run_cap} "
+        f"(not billed per token — see MODELS.md)",
     ]
 
     by_role: dict[str, float] = {}
@@ -219,8 +254,10 @@ def render(v: Verdict, entries_today: list[dict]) -> str:
         lines += [f"- #{a['ticket']} ({a['role']}) ${a['usd']:.2f}" for a in v.anomalies]
 
     if v.state == "tripped":
-        lines += ["", "Set `COMPANY_PAUSED=1`. Only the owner resumes a paused company, "
-                      "and only the owner raises a cap."]
+        knob = ("COMPANY_DAILY_RUN_CAP" if "subscription-run" in v.reason
+                else "COMPANY_DAILY_CAP")
+        lines += ["", f"Set `COMPANY_PAUSED=1`, or raise `{knob}`. Only the owner resumes "
+                      "a paused company, and only the owner raises a cap."]
     elif v.state == "degrade":
         lines += ["", "New capable-tier work is refused; cheap and local tiers continue."]
     return "\n".join(lines)
