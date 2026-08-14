@@ -56,17 +56,85 @@ sudo -u company .venv/bin/python company/temporal/schedule.py trigger
 sudo -u company .venv/bin/python company/temporal/schedule.py describe
 ```
 
-## Alternative: Fly.io, no box to administer
+## Fly, end to end
 
-**~$2–5/month.** Right if you would rather not own a server, accepting that the
-later self-hosted pieces will need somewhere else to live.
+**~$10–20/month all in.** No box to administer, no ID document at signup, and
+the later self-hosted pieces can move to a VPS when you get to them.
+
+Two apps: the Temporal server and the worker. The server has **no public
+address** — Fly's private 6PN network gives it `company-temporal.internal`, so
+only the worker can reach it, which is stronger isolation than a firewalled port.
+
+### Why not Temporal Cloud
+
+Temporal Cloud starts at **$100/month with no free tier**. A 15-minute heartbeat
+generates a few tens of thousands of Actions a month against a 1,000,000 Action
+allowance — enterprise rates for a rounding error, and more than the rest of the
+stack combined. There are $1,000 in trial credits, so Cloud is a reasonable
+*trial*, but it is a cliff you would rather not walk off in ten months.
+
+Self-host now. Revisit when real agent work runs through it and losing workflow
+history would actually hurt.
+
+### 1. Postgres
+
+```bash
+fly postgres create --name company-temporal-db --region fra --initial-cluster-size 1 --vm-size shared-cpu-1x --volume-size 10
+```
+
+Keep the credentials it prints — they are shown once.
+
+### 2. The Temporal server
+
+```bash
+fly launch --no-deploy --copy-config --config company/deploy/fly-temporal/fly.toml
+fly secrets set --app company-temporal \
+  POSTGRES_SEEDS=company-temporal-db.internal \
+  POSTGRES_USER=postgres \
+  POSTGRES_PWD='<password from step 1>'
+fly deploy --config company/deploy/fly-temporal/fly.toml
+fly logs --app company-temporal        # expect schema setup, then "Temporal server started"
+```
+
+### 3. The worker
 
 ```bash
 fly launch --no-deploy --copy-config --config company/deploy/fly.toml
-fly secrets set GITHUB_TOKEN=ghp_... TEMPORAL_API_KEY=...
+fly secrets set --app company-hq-worker GITHUB_TOKEN=github_pat_...
 fly deploy --config company/deploy/fly.toml --dockerfile company/deploy/Dockerfile
-fly logs
+fly logs --app company-hq-worker       # expect "worker up on task queue 'company-hq'"
 ```
+
+Both apps must be in the **same region** — 6PN spans regions but you are paying
+latency for nothing.
+
+### 4. The clock
+
+```bash
+fly ssh console --app company-hq-worker -C "python company/temporal/schedule.py create"
+fly ssh console --app company-hq-worker -C "python company/temporal/schedule.py trigger"
+fly ssh console --app company-hq-worker -C "python company/temporal/schedule.py describe"
+```
+
+### 5. Watch it
+
+There is no public Temporal UI in this setup, which is the point. To look at it,
+tunnel in from your laptop:
+
+```bash
+fly proxy 7233:7233 --app company-temporal
+temporal --address localhost:7233 workflow list
+```
+
+Or run the UI locally against the tunnel. Do **not** give the server a public IP
+just to get a dashboard.
+
+### Turning the cron heartbeat off
+
+Once Temporal has run clean for a day, disable the Actions heartbeat so the two
+clocks are not both triaging the same board: Actions → Company heartbeat → ⋯ →
+Disable workflow. Keep the **watchdog** enabled — it is what tells you the
+Temporal worker died.
 
 Railway and Render take the same Dockerfile with their own config.
 

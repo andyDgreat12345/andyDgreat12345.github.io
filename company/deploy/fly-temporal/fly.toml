@@ -1,0 +1,46 @@
+# The Temporal server, self-hosted on Fly.
+#
+# WHY SELF-HOST: Temporal Cloud starts at $100/month with no free tier. For a
+# 15-minute heartbeat — a few tens of thousands of Actions a month against a
+# 1,000,000 Action allowance — that is paying enterprise rates for a rounding
+# error, and more than the entire rest of the stack combined. Revisit when real
+# agent work runs through it and losing history would actually hurt.
+#
+# NO PUBLIC ADDRESS. There is deliberately no [http_service] and no public IP.
+# Fly's private 6PN network gives every app a `<app>.internal` DNS name, so the
+# worker reaches this at company-temporal.internal:7233 and nothing else can
+# reach it at all. That is better isolation than a firewalled public port.
+#
+# Set up in company/deploy/RUNBOOK.md under "Fly, end to end".
+
+app = "company-temporal"
+primary_region = "fra"          # keep this and the worker in the SAME region
+
+[build]
+  # Verify the current tag before deploying — check hub.docker.com/r/temporalio/auto-setup
+  image = "temporalio/auto-setup:1.29.0"
+
+[env]
+  DB = "postgres12"
+  DB_PORT = "5432"
+  # POSTGRES_SEEDS / POSTGRES_USER / POSTGRES_PWD come from `fly secrets set`,
+  # never from this file.
+  DYNAMIC_CONFIG_FILE_PATH = "config/dynamicconfig/development-sql.yaml"
+  # auto-setup creates the schema and the default namespace on first boot. It is
+  # idempotent, so leaving it on means a restart repairs a half-applied schema.
+  SKIP_DEFAULT_NAMESPACE_CREATION = "false"
+  # Keep history around long enough to actually debug a bad night.
+  NUM_HISTORY_SHARDS = "4"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                # 512mb is tight once history accumulates
+
+# Never scale to zero. A stopped Temporal server means the clock stops, and a
+# stopped clock is the silent failure INFRA.md is built to avoid.
+[[services]]
+  internal_port = 7233
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
