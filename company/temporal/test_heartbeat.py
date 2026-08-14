@@ -171,14 +171,22 @@ async def main() -> int:
     assert result.reported_on == 99
     assert len(CALLS["reports"]) == 1
 
-    # Fan-out. Five tickets were routed but only three claimed: the engineer and
-    # the analyst each hold one, because each is a single session that can work
-    # one ticket per wake. Claiming all five would produce three expired leases
-    # and a board that looked busy the whole time.
+    # Fan-out. Five tickets were routed and exactly ONE is claimed, because the
+    # engineer is the only role with a worker behind it. The analyst's and the
+    # SRE's tickets are vacancies — the stage is real, nobody is hired for it,
+    # and claiming anyway would expire the lease and escalate the ticket as
+    # though the work had been tried and failed.
     claimed = sorted((c[0], c[1]) for c in CALLS["claims"])
-    assert claimed == [(1, "claim:engineer"), (2, "claim:analyst"), (5, "claim:sre")], claimed
+    assert claimed == [(1, "claim:engineer")], claimed
     deferred = {d["issue"]: d["why"] for d in result.deferred}
-    assert "at capacity" in deferred[6] and "at capacity" in deferred[8], deferred
+    # #2 wants an analyst, #5 an SRE: neither exists.
+    assert "no analyst hired" in deferred[2], deferred
+    assert "no sre hired" in deferred[5], deferred
+    assert all(d.get("vacancy") for d in result.deferred if d["issue"] in (2, 5))
+    # #8 also wants the engineer, who is already holding #1. That is capacity,
+    # not a vacancy — a transient state rather than a standing one.
+    assert "at capacity" in deferred[8], deferred
+    assert not any(d.get("vacancy") for d in result.deferred if d["issue"] == 8)
     # Every claim carries a brief, and the brief is self-contained — the worker
     # arrives cold and cannot ask a follow-up question.
     for _, _, text in CALLS["claims"]:
@@ -248,17 +256,23 @@ async def main() -> int:
     assert "already claimed" in deferred[1], deferred
     print("6. live lease — left alone, no double claim")
 
-    # --- 7. Degraded spend holds capable work, not the SRE ------------------
+    # --- 7. Degraded spend holds capable work -------------------------------
     for bucket in CALLS.values():
         bucket.clear()
     HELD[:] = []
     FAIL_ONCE["degraded"] = True
     result = await run_once(client)
     FAIL_ONCE["degraded"] = False
-    claimed = [c[0] for c in CALLS["claims"]]
-    assert claimed == [5], claimed  # the SRE only — capable tier held
-    assert all("capable-tier" in d["why"] for d in result.deferred if d["issue"] in (1, 2))
-    print("7. degraded — capable work held, SRE still running")
+    assert CALLS["claims"] == [], CALLS["claims"]
+    # The engineer is capable-tier, so the controller's 90% rule holds it. The
+    # SRE would keep running on principle — diagnostics are the last thing to
+    # switch off — but there is no SRE hired, so nothing runs at all. Worth
+    # asserting the REASONS rather than just the empty result: "held for budget"
+    # and "nobody hired" are very different states to wake up to.
+    deferred = {d["issue"]: d["why"] for d in result.deferred}
+    assert "capable-tier" in deferred[1], deferred
+    assert "no sre hired" in deferred[5], deferred
+    print("7. degraded — capable work held for budget, SRE stage vacant")
 
     print("\nall assertions passed")
     return 0
