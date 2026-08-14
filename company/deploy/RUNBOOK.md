@@ -125,6 +125,26 @@ the whole question. A timeout, a connection reset, or `403` from an edge you did
 not authenticate to means the region is blocked. Slow but non-zero times on PyPI
 are fixable with a mirror; the other two are not fixable.
 
+### If a provider demands an ID document
+
+Chinese cloud providers require real-name registration (实名认证) by law, so
+Tencent, Alibaba and Huawei will all ask for a government ID. That requirement is
+**specific to Chinese providers**, not a norm of the VPS industry. Most Western
+providers treat a valid credit card as the verification and never ask for a
+document. So the fix is not to hunt for a special host — it is simply to use a
+non-Chinese one.
+
+Policies do vary by country and account, and any provider may escalate to a
+manual review if a signup looks unusual. Signup is free everywhere, so the honest
+test is to create the account and find out in two minutes before paying.
+
+**Avoid the "no-KYC / anonymous offshore VPS" segment.** It markets itself hard to
+exactly this search, and it is the wrong tool here. Those hosts optimise for
+untraceability, not for a box that stays up for years — and they change terms
+abruptly. In March 2026 one long-running no-KYC provider suspended all services
+and demanded verification from existing customers with no notice. You want a
+boring host with an accounts department.
+
 ### Sizing
 
 The worker alone fits in 512 MB. But `STACK.md` steps 4 and 6 add self-hosted
