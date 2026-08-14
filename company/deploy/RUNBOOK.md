@@ -81,6 +81,64 @@ Set `TEMPORAL_ADDRESS=localhost:7233` in `worker.env` and leave the key blank. U
 a production compose file with Postgres — **not** `company/temporal/docker-compose.yml`,
 which is an in-memory dev server that loses everything on restart.
 
+## Choosing a provider and region
+
+Price is not the binding constraint. **Egress is.** The worker must reach
+`api.github.com`, your Temporal endpoint, and — once roles actually run —
+`api.anthropic.com`. A host that cannot reach those is unusable at any price.
+
+This rules out more than it looks like:
+
+| Region | Verdict | Why |
+|---|---|---|
+| **Mainland China** (Tencent, Alibaba, Huawei) | **No** | Anthropic does not serve mainland China and has blocked mainland IPs server-side since March 2026. GitHub is unreliable through the GFW and `raw.githubusercontent.com` is frequently unreachable, which breaks the bootstrap one-liner |
+| **Hong Kong / Macau** | **No** | Also not on Anthropic's supported-regions list; HK IPs are turned away. This surprises people — HK is outside the GFW, but that is not the constraint here |
+| **Singapore, Tokyo, Frankfurt, Silicon Valley** | **Yes** | Supported regions, ordinary egress |
+
+So a Chinese provider is fine **only** in an international region. Tencent Cloud
+Lighthouse in Singapore or Tokyo is genuinely cheap and should work; the same
+product in Guangzhou or Hong Kong will not.
+
+Two cautions if you go that route:
+
+- **Enforcement is IP-based**, and provider ranges are identifiable. Anthropic
+  tightened restrictions on Chinese-controlled entities in 2025. You are an
+  individual, not an entity, but there is real residual risk that a
+  Tencent-owned range gets treated differently than a Hetzner one. **Test before
+  you prepay.**
+- **Buy monthly first.** The headline prices on Chinese clouds are first-year
+  new-user promotions that renew at standard rates. A one-year prepay on a box
+  that turns out to be blocked is the expensive mistake here.
+
+### The five-minute test that settles it
+
+On the smallest instance in the region you are considering, before committing:
+
+```bash
+curl -sS -o /dev/null -w 'github    %{http_code}  %{time_total}s\n' https://api.github.com
+curl -sS -o /dev/null -w 'anthropic %{http_code}  %{time_total}s\n' https://api.anthropic.com/v1/messages
+curl -sS -o /dev/null -w 'pypi      %{http_code}  %{time_total}s\n' https://pypi.org/simple/
+```
+
+Expect `401`/`405` from the first two — that means you *reached* them, which is
+the whole question. A timeout, a connection reset, or `403` from an edge you did
+not authenticate to means the region is blocked. Slow but non-zero times on PyPI
+are fixable with a mirror; the other two are not fixable.
+
+### Sizing
+
+The worker alone fits in 512 MB. But `STACK.md` steps 4 and 6 add self-hosted
+Langfuse and Graphiti, and `INFRA.md` Tier 1 adds Ollama — those want 8 GB. A
+1 GB instance is correct for step 1 and wrong for the roadmap, so either size up
+now or accept moving later.
+
+### One charter note
+
+`CHARTER.md` binds personal data — admissions records, case files — to
+first-party providers. Where the *infrastructure* lives is a separate question
+from where the model calls go, but the two interact once real user data flows
+through this box. Worth a decision now rather than after.
+
 ## Credentials
 
 ### GitHub token
