@@ -85,7 +85,7 @@ stage being done.
 | Stage | Label | Owner | Exit artifact | Gate to leave |
 |---|---|---|---|---|
 | Inbox | `status:inbox` | Anyone, incl. watchers | An issue with a title | Has a body |
-| Triage | — | Dispatcher | `dept:*`, `size:*`, `risk:*` labels | Labelled, or → `needs-spec` |
+| Triage | — | Dispatcher | `dept:*`, `size:*`, `risk:*`, **and the next stage** | Must leave Inbox |
 | Spec | `status:needs-spec` | Analyst | Acceptance criteria as a checklist | You approve if `size:L` |
 | Build | `status:ready` | Engineer | A **draft PR** linked to the issue | CI green |
 | Review | PR ready for review | Reviewer | An approval or a change request | Reviewer ≠ author |

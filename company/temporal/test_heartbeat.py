@@ -28,6 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from activities import BoardSnapshot, LabelWrite  # noqa: E402
 from workflows import HeartbeatWorkflow  # noqa: E402
 
+import board  # noqa: E402  — on sys.path via activities
+
 ADDRESS = os.environ.get("TEMPORAL_ADDRESS", "localhost:7233")
 
 # Recorded by the stubs so assertions can check what the workflow actually did,
@@ -49,6 +51,8 @@ BOARD = [
     issue(5, ["dept:site", "status:verify"]),
     issue(6, ["dept:casewriter", "status:inbox"], body=""),      # → needs-spec
     issue(7, ["status:inbox"]),                                   # no dept → note
+    issue(8, ["dept:site", "status:inbox"],
+          body="Add the page.\n\n- [ ] lists open tickets by stage\n"),  # → ready
 ]
 
 
@@ -64,7 +68,7 @@ def stubs(paused: bool = False):
 
     @activity.defn(name="apply_labels")
     async def apply_labels(write: LabelWrite) -> None:
-        CALLS["labels"].append((write.issue, tuple(write.labels)))
+        CALLS["labels"].append((write.issue, tuple(write.labels), tuple(write.remove)))
 
     @activity.defn(name="post_report")
     async def post_report(body: str) -> int:
@@ -116,18 +120,28 @@ async def main() -> int:
     result = await run_once(client)
 
     routed = [(p["issue"], p["role"]) for p in result.plan]
-    # #6 is triaged to needs-spec and then picked up by the analyst in the SAME
-    # cycle — the workflow reflects each label write back onto its local copy of
-    # the board before planning, so a new ticket does not wait 15 minutes to be
-    # looked at. That behaviour is the point of the local write-back, not an
-    # accident of ordering.
-    assert routed == [(1, "engineer"), (2, "analyst"), (5, "sre"), (6, "analyst")], routed
+    # #6 and #8 are triaged out of Inbox and picked up in the SAME cycle — the
+    # workflow reflects each label write back onto its local copy of the board
+    # before planning, so a new ticket is not left waiting 15 minutes to be
+    # looked at. That is the point of the local write-back, not an accident.
+    assert routed == [
+        (1, "engineer"), (2, "analyst"), (5, "sre"), (6, "analyst"), (8, "engineer"),
+    ], routed
     assert not result.paused
     skipped = {s["issue"] for s in result.skipped}
     assert skipped == {3, 4}, skipped
-    # #6 has an empty body and so is pushed to spec; #7 has no dept and is only noted.
-    assert (6, ("size:m", "risk:med", "status:needs-spec")) in CALLS["labels"], CALLS["labels"]
-    assert not any(c[0] == 7 for c in CALLS["labels"]), "must not guess a department"
+
+    # Every triaged ticket must LEAVE inbox — the stall bug this guards against.
+    for number, added, removed in CALLS["labels"]:
+        assert removed == ("status:inbox",), (number, removed)
+        assert set(added) & set(board.STAGE_OWNER), (number, added)
+
+    # #6 has an empty body → spec. #8 states acceptance criteria → straight to build.
+    by_issue = {c[0]: c[1] for c in CALLS["labels"]}
+    assert "status:needs-spec" in by_issue[6], by_issue[6]
+    assert "status:ready" in by_issue[8], by_issue[8]
+    # #7 has no department, so it is left exactly as it is for a human.
+    assert 7 not in by_issue, "must not guess a department"
     assert any("no dept label" in t for t in result.triaged)
     assert result.reported_on == 99
     assert len(CALLS["reports"]) == 1
@@ -147,9 +161,9 @@ async def main() -> int:
     result = await run_once(client)
     assert result.reported_on == 99, "retry should have succeeded"
     assert len(CALLS["reports"]) == 1, "report posted exactly once despite the failure"
-    # The seven triage writes happened once, not twice — the run resumed at the
+    # The triage writes happened once, not twice — the run resumed at the
     # failed step instead of replaying the side effects before it.
-    assert len(CALLS["labels"]) == 1, CALLS["labels"]
+    assert len(CALLS["labels"]) == 2, CALLS["labels"]
     print("3. durability — post_report failed once, resumed, no work repeated")
 
     # --- 4. WIP limit / dry run --------------------------------------------

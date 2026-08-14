@@ -28,6 +28,18 @@ DEPTS = {"dept:site", "dept:casewriter", "dept:market", "dept:admissions", "dept
 SIZES = {"size:s", "size:m", "size:l"}
 RISKS = {"risk:low", "risk:med", "risk:high"}
 
+# Every stage a ticket can be in. Wider than STAGE_OWNER, which lists only the
+# stages a role picks up — the difference matters when deciding whether a ticket
+# is already mid-flight, because `status:building` has no owner to route to but
+# absolutely must not be dragged back to spec.
+STAGES = set(STAGE_OWNER) | {
+    "status:inbox",
+    "status:building",
+    "status:ship",
+    "status:done",
+    "status:blocked",
+}
+
 # Guardrails from ORG.md. WIP stops the board filling with half-finished PRs;
 # MAX_ATTEMPTS is what stands between a broken ticket and an overnight retry storm.
 WIP_LIMIT = 3
@@ -50,26 +62,66 @@ def attempts(issue: dict) -> int:
     return 0
 
 
-def triage(issue: dict) -> tuple[list[str], str | None]:
-    """Apply the missing classification labels. Returns (labels_to_add, note).
+def has_acceptance_criteria(body: str | None) -> bool:
+    """True when the body carries a checklist item with actual content.
 
-    The dispatcher may classify but may never guess: an issue whose department is
-    unclear, or which arrived with no body, goes to the analyst rather than being
-    assigned a department at random.
+    The work-order template pre-fills an empty `- [ ]`, so an empty box must not
+    count — otherwise every ticket would look specified and skip the analyst.
+    """
+    for line in (body or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("- [ ]", "- [x]", "- [X]")):
+            if stripped[5:].strip():
+                return True
+    return False
+
+
+def triage(issue: dict) -> tuple[list[str], list[str], str | None]:
+    """Classify a ticket and move it out of Inbox.
+
+    Returns (labels_to_add, labels_to_remove, note).
+
+    Triage has to *advance* the stage, not merely label it. Inbox is not a stage
+    any role owns, so a ticket that gets classified and left there is a ticket
+    nobody will ever pick up — it just accumulates. The exit from Inbox is
+    therefore mandatory: either straight to the engineer when the ticket already
+    states how it will be checked, or to the analyst to write that down.
+
+    The dispatcher may classify but may never guess. An issue whose department is
+    unclear is left exactly as it is for a human, rather than being assigned to a
+    department at random.
     """
     have = labels_of(issue)
     add: list[str] = []
+    remove: list[str] = []
 
     if not (have & DEPTS):
-        return [], "no dept label — needs a human or an analyst to classify"
+        return [], [], "no dept label — needs a human or an analyst to classify"
+
     if not (have & SIZES):
         add.append("size:m")
     if not (have & RISKS):
         add.append("risk:med")
-    if not (issue.get("body") or "").strip():
+
+    # Leaving Inbox. Anything already carrying another stage label is mid-flight
+    # and must not be dragged backwards — checked against every stage, not just
+    # the routable ones, or a ticket being built would be sent back to spec.
+    if have & (STAGES - {"status:inbox"}):
+        return add, remove, None
+
+    remove.append("status:inbox")
+    body = issue.get("body")
+
+    if not (body or "").strip():
         add.append("status:needs-spec")
-        return add, "empty body — routed to spec"
-    return add, None
+        return add, remove, "empty body — routed to spec"
+
+    if has_acceptance_criteria(body):
+        add.append("status:ready")
+        return add, remove, "has acceptance criteria — straight to build"
+
+    add.append("status:needs-spec")
+    return add, remove, "no acceptance criteria — routed to spec"
 
 
 def build_plan(issues: list[dict], in_review: int) -> tuple[list[dict], list[dict]]:
