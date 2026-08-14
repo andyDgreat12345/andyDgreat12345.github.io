@@ -16,12 +16,14 @@ ground truth. You hold the keys that matter.
 | [`CHARTER.md`](CHARTER.md) | What the company is for, who holds which authority, how to stop it |
 | [`ORG.md`](ORG.md) | The org chart, the ticket lifecycle, and the gates between stages |
 | [`OPERATING.md`](OPERATING.md) | What the owner actually does, how failures are caught, and the order roles get hired |
-| [`MODELS.md`](MODELS.md) | Which of Claude Code / Codex / DeepSeek / local models does which job |
+| [`MODELS.md`](MODELS.md) | Which of Claude Code / DeepSeek / local models does which job, and the two meters that cap them |
 | [`INFRA.md`](INFRA.md) | Where to physically build it, how it stays up 24/7, how you drive it from an iPad |
 | [`STACK.md`](STACK.md) | The funded version: durable execution, sandboxes, evals, memory — what to buy and in what order |
 | [`ROLLOUT.md`](ROLLOUT.md) | 90-day plan, real costs, and the failure modes that kill setups like this |
 | [`roles/`](roles/) | One job description per role — these are literal agent system prompts |
+| [`workers/README.md`](workers/README.md) | How a worker is hired, the claim protocol, and the Routine prompt that starts the engineer |
 | [`ops/board.py`](ops/board.py) | Every routing decision, as pure logic. Change how work is routed here and nowhere else |
+| [`ops/assign.py`](ops/assign.py) | The fan-out: who holds a ticket right now, and when a dead worker's claim is reaped |
 | [`ops/labels.py`](ops/labels.py) | The label vocabulary — run it from the Actions tab via **Company bootstrap** |
 | [`ops/models.py`](ops/models.py) | Tier + data class → model. The data policy, enforced rather than documented |
 | [`ops/controller.py`](ops/controller.py) | The budget breaker: ledger, caps, degrade, trip. No model, on purpose |

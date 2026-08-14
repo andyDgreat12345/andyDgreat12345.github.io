@@ -47,6 +47,16 @@ LABELS = [
     ("status:ship", "ededed", "Owner: merge and deploy"),
     ("status:done", "ededed", "Shipped and reported"),
     ("status:blocked", "b60205", "Cannot proceed; reason in a comment"),
+    # Claims — the company's only lock. A worker holds one of these while it
+    # works, and the fan-out will not hand a claimed ticket to anyone else.
+    # They are LEASES: the heartbeat releases one that has been held too long,
+    # because a worker that dies mid-ticket cannot release its own claim.
+    ("claim:analyst", "d4c5f9", "Held by the analyst"),
+    ("claim:engineer", "d4c5f9", "Held by the engineer"),
+    ("claim:reviewer", "d4c5f9", "Held by the reviewer"),
+    ("claim:sre", "d4c5f9", "Held by the SRE"),
+    ("claim:researcher", "d4c5f9", "Held by the researcher"),
+    ("claim:comms", "d4c5f9", "Held by comms"),
     # The escalation flag. The dispatcher will not touch anything wearing this.
     ("needs:human", "5319e7", "Owner's call — agents must not act"),
 ]
