@@ -23,6 +23,8 @@ ground truth. You hold the keys that matter.
 | [`roles/`](roles/) | One job description per role — these are literal agent system prompts |
 | [`ops/board.py`](ops/board.py) | Every routing decision, as pure logic. Change how work is routed here and nowhere else |
 | [`ops/labels.py`](ops/labels.py) | The label vocabulary — run it from the Actions tab via **Company bootstrap** |
+| [`ops/models.py`](ops/models.py) | Tier + data class → model. The data policy, enforced rather than documented |
+| [`ops/controller.py`](ops/controller.py) | The budget breaker: ledger, caps, degrade, trip. No model, on purpose |
 | [`ops/dispatch.py`](ops/dispatch.py) | The Tier 0 dispatcher: reads the queue, routes tickets, has no opinions, no dependencies |
 | [`temporal/`](temporal/) | The same heartbeat as a durable workflow — step 1 of `STACK.md`, and the one to run in production |
 | [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md) | Where the worker actually lives, what it costs, the token scopes, and what to do when it breaks |

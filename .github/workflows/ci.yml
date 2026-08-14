@@ -37,6 +37,8 @@ jobs:
         run: python company/ops/test_board.py
       - name: stall detection
         run: python company/ops/test_stall.py
+      - name: model routing + spend controller
+        run: python company/ops/test_controller.py
 
   site:
     name: Site
