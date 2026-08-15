@@ -81,6 +81,54 @@ Add a role to `HIRED` the moment a worker exists for it, and not before. Being
 late costs a ticket that waits; being early costs a ticket that lies about
 having failed.
 
+## The gate that needs no model
+
+`company/ops/gate.py`, run by `.github/workflows/company-gate.yml` on every pull
+request. It checks the half of review that needs no judgement:
+
+| Rule | Why it blocks |
+|---|---|
+| `forbidden-path` | `.github/workflows/` touched — a worker that can rewrite its own gates has none |
+| `no-ticket` | No `Closes #N`, so nothing links the work back to the board |
+| `wrong-ticket` | Closes a different ticket than the branch was claimed for |
+| `unticked-criteria` | An unticked box is the author saying it did not finish |
+| `no-test` | Source changed, no test file touched |
+| `test-without-assertion` | An empty test turns a gap into a green tick |
+
+Missing evidence and a non-draft PR are **warnings**, not blocks. A gate that
+blocks on judgement gets routed around, and a routed-around gate is worse than
+none because the merge still looks checked.
+
+**Blocking for `agent/*` branches, advisory for everyone else.** These rules
+encode how a *worker* is asked to submit work; blocking a human on a worker's
+conventions would teach everyone to ignore it.
+
+Three things make this better than a model at its own job: it cannot hallucinate
+a finding, it cannot be switched off by a spend cap or leak a key to a fork, and
+it **shares no training with the builder** — which is the entire reason
+`MODELS.md` wants a different family at the gate. It does not replace a
+reviewer; it means a reviewer spends attention on the half that needs judgement.
+
+## The janitor: duplicate detection
+
+`company/ops/dedupe.py`, run on `issues.opened`. It exists because the board
+produced the bug it prevents — #12 and #13 were the same ticket filed twice, and
+the second would have been claimed, worked and paid for.
+
+Closed tickets are compared too, and that is the costlier catch: a duplicate of
+something already shipped wastes a claim *and* produces a change nobody needed.
+
+Similarity is measured over **words, not characters**, and that took a false
+positive to get right. Character matching scores "lease dashboard" against
+"ledger dashboard" at 0.84 — they share letters, not meaning. Words are matched
+fuzzily so "lease" still finds "leases", but "ledger" is not close enough to
+count.
+
+When it fires it labels `needs:human` and says plainly that it has no judgement,
+because deciding two tickets are the same is one. `GITHUB_TOKEN` is enough here
+and deliberately so: `needs:human` is a label no worker wakes on, so a token
+that cannot trigger workflows is exactly right.
+
 ## The reviewer: still you
 
 Not built, and the routing says so — `capable-alt` resolves to `claude-code`, a

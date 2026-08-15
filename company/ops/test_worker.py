@@ -182,6 +182,23 @@ def test_an_unattempted_run_never_escalates_however_many_times_it_happens():
     assert "attempt:3" not in add
 
 
+def test_a_merged_pr_still_counts_as_a_finished_run():
+    """The race that made this a `state=all` query.
+
+    The agent opens a PR; a reviewer merges it within the minute; the handoff
+    step then runs. Asking only for OPEN pull requests would find nothing,
+    record a failed attempt on a ticket that succeeded, send it back to the
+    board, and eventually escalate it as unworkable on the strength of having
+    worked. `decide()` cannot see that race — it is prevented by asking the
+    right question — so this asserts the contract: any PR number at all means
+    the run finished.
+    """
+    for pr in (1, 999):
+        add, _, _ = handoff.decide(issue(labels=["status:ready", "claim:engineer"]),
+                                   "engineer", pr_number=pr)
+        assert "status:verify" in add
+
+
 def test_the_release_names_the_role_it_released():
     for role in ("engineer", "reviewer", "sre"):
         _, remove, _ = handoff.decide(issue(), role, pr_number=7)

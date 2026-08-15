@@ -122,16 +122,27 @@ class GitHub:
         return self._request("GET", f"/repos/{self.repo}/issues/{number}")
 
     def pr_for_branch(self, branch: str) -> int | None:
-        """The open PR whose head is this branch, if any.
+        """The PR whose head is this branch, if any.
 
         Includes drafts on purpose: a draft PR is exactly what the engineer is
         asked to produce, and treating it as "no PR" would fail every successful
         run.
+
+        `state=all`, also on purpose. Asking only for OPEN pull requests loses a
+        race that is entirely plausible: the agent opens a PR, a reviewer merges
+        it quickly, and the handoff step then finds nothing open and records a
+        failed attempt on a ticket that succeeded. The ticket would be sent back
+        to the board and eventually escalated as unworkable on the strength of
+        having worked. A closed-unmerged PR is likewise evidence the run
+        produced something; whether it was any good is the reviewer's call, not
+        this function's.
         """
         owner = self.repo.split("/")[0]
-        q = urllib.parse.urlencode({"head": f"{owner}:{branch}", "state": "open"})
+        q = urllib.parse.urlencode({"head": f"{owner}:{branch}", "state": "all"})
         found = self._request("GET", f"/repos/{self.repo}/pulls?{q}") or []
-        return found[0]["number"] if found else None
+        # Newest first: a re-run on the same branch should be judged by the PR
+        # it just produced, not by one from a previous attempt.
+        return max((p["number"] for p in found), default=None)
 
     def apply(self, number: int, add: list[str], remove: list[str], comment: str) -> None:
         if add:
