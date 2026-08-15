@@ -153,7 +153,14 @@ def check(pr: dict, diff: str, claimed_issue: int | None) -> list[dict]:
     return findings
 
 
-def render(findings: list[dict], pr_number: int) -> str:
+def render(findings: list[dict], pr_number: int, advisory: bool = False) -> str:
+    """The comment. `advisory` changes the words, not the findings.
+
+    A human branch is held to a worker's conventions only as information, and
+    telling someone their pull request has "2 blocking" findings when nothing is
+    blocked is how a gate loses its meaning — the next time it says blocking, it
+    will be read as noise.
+    """
     fails = [f for f in findings if f["level"] == "fail"]
     warns = [f for f in findings if f["level"] == "warn"]
 
@@ -163,6 +170,15 @@ def render(findings: list[dict], pr_number: int) -> str:
                 "ticket link, unticked criteria, missing tests, assertionless "
                 "tests. A clear gate is not an approval — it means the boring "
                 "half is done and the half that needs a reviewer is not.")
+
+    if advisory:
+        lines = [f"**Gate — {len(fails) + len(warns)} note(s), none blocking.**", "",
+                 "This branch is not a worker's, so these are information rather "
+                 "than rules. They are the conventions `agent/*` branches are "
+                 "held to.", ""]
+        for f in fails + warns:
+            lines.append(f"- `{f['rule']}` — {f['detail']}")
+        return "\n".join(lines)
 
     lines = [f"**Gate — {len(fails)} blocking, {len(warns)} advisory.**", ""]
     for f in fails:
@@ -231,7 +247,7 @@ def main() -> int:
     gh = GitHub(args.repo, token)
     pr = gh.pr(args.pr)
     findings = check(pr, gh.diff(args.pr), claimed_from_branch(pr["head"]["ref"]))
-    report = render(findings, args.pr)
+    report = render(findings, args.pr, advisory=args.advisory)
     print(report)
 
     if args.comment:

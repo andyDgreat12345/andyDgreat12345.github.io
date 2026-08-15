@@ -146,6 +146,23 @@ def test_test_files_are_recognised_in_both_languages():
     assert not gate.is_test("company/ops/board.py")
 
 
+def test_an_advisory_report_never_says_blocking():
+    """Telling someone their pull request has "2 blocking" findings when nothing
+    is blocked is how a gate loses its meaning — the next time it says blocking,
+    it reads as noise. This is the exact comment the gate posted on #17."""
+    f = gate.check(pr(body="Some work."), diff(".github/workflows/ci.yml"), None)
+    text = gate.render(f, 17, advisory=True)
+    assert "blocking" not in text.lower().replace("none blocking", "")
+    assert "not a worker's" in text
+    assert "forbidden-path" in text          # still says what it found
+
+
+def test_the_same_findings_block_on_a_worker_branch():
+    """Advisory changes the words, not the findings."""
+    f = gate.check(pr(body="Some work."), diff(".github/workflows/ci.yml"), 12)
+    assert "FAIL" in gate.render(f, 16, advisory=False)
+
+
 def test_the_report_names_the_rule_and_where_it_lives():
     """Someone reading a blocked PR needs to know the rule is a line of code
     they can go argue with, not a model's opinion they have to persuade."""
