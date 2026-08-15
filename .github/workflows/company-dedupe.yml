@@ -1,0 +1,52 @@
+name: Company dedupe
+
+# Catch a ticket that has already been filed, before anyone pays to build it.
+#
+# Not a role — a janitor. It exists because the board produced the bug it
+# prevents: #12 and #13 were the same ticket filed twice, and nothing noticed.
+# The second would have been triaged, claimed, worked and paid for.
+#
+# Runs before the heartbeat can claim anything: the heartbeat is on a 15-minute
+# schedule and this fires on `issues.opened`, so a flagged duplicate is wearing
+# `needs:human` well before the dispatcher looks at the board.
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to check
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: company-dedupe-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Already filed?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # GITHUB_TOKEN is enough here, and deliberately so. This only ever ADDS
+      # `needs:human`, which is a label no worker wakes on — so the fact that a
+      # GITHUB_TOKEN label change triggers nothing is the behaviour we want.
+      # Compare the heartbeat, which must use the PAT precisely because its
+      # label has to wake something.
+      - name: Check for a duplicate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number || inputs.issue }}
+        run: |
+          python company/ops/dedupe.py --issue "$ISSUE" --apply \
+            | tee -a "$GITHUB_STEP_SUMMARY"
