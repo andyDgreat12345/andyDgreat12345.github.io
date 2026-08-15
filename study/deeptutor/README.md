@@ -28,7 +28,7 @@ costs no extra work at all.
 
 ## Recommendation
 
-**A Hetzner CX32 (4 vCPU / 8 GB / 80 GB), Ubuntu 24.04, running the published
+**A Hetzner CPX32 (4 vCPU / 8 GB / 160 GB), Ubuntu 24.04, running the published
 Docker image, reachable from the iPad over Tailscale.**
 
 Three decisions inside that, each with a reason:
@@ -40,16 +40,22 @@ before any document parsing starts, and MinerU/Docling pull real ML models into
 memory when you feed them a PDF. Either give DeepTutor the 8 GB box and leave the
 company on its own, or size the shared box at 8 GB from the start.
 
+**CPX, not CX.** The obvious pick was a CX32, and it is the wrong one: Hetzner's
+cost-optimized CX line reads *currently not available* on their own cloud page,
+having been superseded by the CX Gen3 / CPX Gen2 refresh. **CPX32** is the live
+4 vCPU / 8 GB plan (160 GB NVMe), available in Nuremberg, Falkenstein, Helsinki
+and Singapore. Check the price in the console rather than trusting a number from
+here — Hetzner raised cloud prices in June 2026 and the third-party trackers
+disagree with each other by more than the plan costs.
+
 **x86, not ARM.** The image is genuinely multi-arch — I verified both
 `linux/amd64` and `linux/arm64` in the registry — and a CAX21 would work. But the
 document-parsing stack sits on PyTorch, and arm64 wheels are still the fragile
-path when something needs building. At current Hetzner pricing the ARM box is not
-even cheaper (roughly €7.99 for CAX21 against €6.80 for CX32 after the June 2026
-increase — verify both, these moved recently). x86 is the boring choice and this
-is a place to be boring.
+path when something needs building. x86 is the boring choice and this is a place
+to be boring.
 
-**Disk is a non-issue.** The image is ~450 MB compressed, ~1.5 GB unpacked. 80 GB
-is ample; your knowledge bases will grow into it slowly.
+**Disk is a non-issue.** The image is ~450 MB compressed, ~1.5 GB unpacked. Your
+knowledge bases will grow into 160 GB slowly.
 
 If you would rather not administer a box at all, Fly.io works — one machine with a
 2–4 GB VM and a persistent volume — but the same caveat in `company/deploy/fly.toml`
@@ -99,32 +105,87 @@ either; you only need this when you start indexing your own documents.
 
 | File | What it is |
 |---|---|
+| `cloud-init.yaml` | Paste-once box provisioning — the recommended path |
 | `docker-compose.yml` | The single-container deployment, pinned, loopback-bound |
-| `bootstrap.sh` | Fresh Ubuntu box → Docker, Tailscale, service running |
+| `bootstrap.sh` | Same thing for a box that already exists |
 
 ## Standing it up
 
-On a fresh Ubuntu 24.04 box, as root:
+### Before you create the server
+
+Two of these are easy to forget and both strand you afterwards.
+
+1. **Tailscale auth key** — from
+   [the admin console](https://login.tailscale.com/admin/settings/keys). Make it
+   **ephemeral, pre-approved, single-use**. It goes into cloud-init metadata,
+   which anything on the box can read; single-use means it is spent the moment
+   this machine joins and is worthless to a later reader.
+2. **Tailscale → DNS: enable MagicDNS and HTTPS Certificates.** `tailscale serve`
+   cannot issue a certificate without them, and the serve step will quietly skip.
+3. **An SSH key uploaded to Hetzner.** The config disables password login, so a
+   box created without a key attached locks you out permanently.
+
+### Create the server
+
+Hetzner console → **Create Server**:
+
+| Field | Value |
+|---|---|
+| Image | Ubuntu 24.04 |
+| Type | **CPX32** — shared vCPU, 4 vCPU / 8 GB / 160 GB |
+| Location | Nuremberg, Falkenstein or Helsinki |
+| SSH key | yours, attached |
+| Cloud config | paste `cloud-init.yaml`, with the auth key filled in |
+
+Nothing else needs changing. Do **not** add a firewall rule for 3782 — the port
+is deliberately not reachable from outside the box.
+
+### After it boots
+
+Two or three minutes. Then, over SSH or the console:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/andyDgreat12345/andyDgreat12345.github.io/main/study/deeptutor/bootstrap.sh | bash
+tailscale serve status     # prints the https://deeptutor.<tailnet>.ts.net URL
+docker compose -f /opt/deeptutor/docker-compose.yml ps   # expect "healthy"
 ```
 
-It installs Docker and Tailscale, drops the compose file at `/opt/deeptutor`,
-pulls the image and starts it bound to loopback. It stores **no secrets** and
-exposes nothing publicly. Then:
-
-```bash
-tailscale up                                  # authenticate the box to your tailnet
-tailscale serve --bg 3782                     # HTTPS inside the tailnet only
-tailscale serve status                        # prints the https://<host>.ts.net URL
-```
-
-Open that URL on the iPad, walk the setup, add your DeepSeek key under
-**Settings → Models**, then turn on auth and restart:
+Open that URL on the iPad — Tailscale app installed and signed in — then
+**Share → Add to Home Screen**. Add your provider key under **Settings → Models**,
+register your account, then enable auth in `data/user/settings/auth.json` and:
 
 ```bash
 cd /opt/deeptutor && docker compose restart
+```
+
+### If the box already exists
+
+`bootstrap.sh` does the same work against a running machine:
+
+```bash
+sudo bash study/deeptutor/bootstrap.sh
+```
+
+It installs Docker and Tailscale but authenticates neither and stores no secret;
+you run `tailscale up` yourself afterwards.
+
+> Note: the `curl | bash` one-liner in that script's header fetches from `main`
+> and only works once this has merged. Until then, run it from a clone.
+
+### Keeping the two compose copies in sync
+
+`cloud-init.yaml` inlines `docker-compose.yml` rather than fetching it, so that
+provisioning depends on no branch, no merge and no network. The cost is two
+copies. If you change one, change the other:
+
+```bash
+python3 - <<'PY'
+import yaml
+a = yaml.safe_load(open('docker-compose.yml'))['services']['deeptutor']
+w = yaml.safe_load(open('cloud-init.yaml'))['write_files']
+b = yaml.safe_load(next(f for f in w if f['path'].endswith('docker-compose.yml'))['content'])['services']['deeptutor']
+d = [k for k in ('image','ports','volumes','environment','mem_limit','healthcheck','restart','logging') if a.get(k) != b.get(k)]
+print('drift in:', d or 'none')
+PY
 ```
 
 ## Upgrade path: the hardened sandbox
