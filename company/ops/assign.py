@@ -80,8 +80,12 @@ DEFAULT_CAPACITY = 1
 # being late is a ticket that waits; the cost of being early is a ticket that
 # lies about having failed.
 HIRED = {
-    "engineer",   # .github/workflows/company-engineer.yml — OpenHands on DeepSeek
+    "engineer",   # OpenHands on DeepSeek — builds a ticket into a draft PR
+    "analyst",    # OpenHands on DeepSeek — turns a request into acceptance criteria
 }
+# Both answer .github/workflows/company-worker.yml, which reads the role off the
+# claim label that woke it. Hiring the next one is an entry here, an entry in
+# board.ROLE_ARTIFACT, and a role card — not another workflow.
 
 
 def claim_label(role: str) -> str:

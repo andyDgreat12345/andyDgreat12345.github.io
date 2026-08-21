@@ -101,11 +101,42 @@ def test_chatter_is_not_mistaken_for_a_work_order():
     assert work_order.latest_work_order([]) is None
 
 
+# ---------- one prompt per role ----------
+
+def test_the_analyst_is_told_not_to_write_code():
+    """A specification written by whoever already built the thing is not a
+    specification. This is the boundary that keeps the stage meaningful."""
+    text = work_order.compose(issue(), "x", REPO, role="analyst")
+    assert "Do not write any code" in text
+    assert "acceptance criteria" in text.lower()
+    # And it must not inherit the engineer's finishing instructions.
+    assert "draft pull request" not in text.lower()
+    assert "agent/issue-" not in text
+
+
+def test_the_engineer_is_still_told_to_open_a_draft_pull_request():
+    text = work_order.compose(issue(), "x", REPO, role="engineer")
+    assert "draft" in text.lower() and "agent/issue-12" in text
+
+
+def test_each_role_is_pointed_at_its_own_card():
+    assert "01-analyst.md" in work_order.compose(issue(), "x", REPO, role="analyst")
+    assert "02-engineer.md" in work_order.compose(issue(), "x", REPO, role="engineer")
+
+
+def test_the_release_instruction_names_the_role_that_holds_the_claim():
+    """Telling an analyst to remove `claim:engineer` leaves its own claim on the
+    ticket, which blocks the board for a full lease."""
+    text = work_order.compose(issue(), "x", REPO, role="analyst")
+    assert "claim:analyst" in text
+    assert "claim:engineer" not in text
+
+
 # ---------- the lock release ----------
 
 def test_a_pr_advances_the_ticket_and_frees_the_lock():
     add, remove, note = handoff.decide(issue(labels=["status:ready", "claim:engineer"]),
-                                       "engineer", pr_number=42)
+                                       "engineer", evidence="Opened #42 and handed this on.")
     assert "status:verify" in add
     assert "claim:engineer" in remove and "status:ready" in remove
     assert "#42" in note
@@ -115,30 +146,56 @@ def test_a_successful_attempt_costs_nothing():
     """The attempt counter is the retry budget. Charging a success would make a
     later failure inherit a cost it did not incur."""
     add, remove, _ = handoff.decide(issue(labels=["attempt:1", "claim:engineer"]),
-                                    "engineer", pr_number=42)
+                                    "engineer", evidence="Opened #42 and handed this on.")
     assert not any(l.startswith("attempt:") for l in add + remove)
 
 
-def test_no_pr_is_a_failed_attempt_however_it_ended():
+def test_no_artifact_is_a_failed_attempt_however_it_ended():
     """Crashed, refused, or quietly did nothing — ORG.md says a run that produced
-    no artifact did not happen."""
+    no artifact did not happen. The wording names the artifact that role owed."""
     add, remove, note = handoff.decide(issue(labels=["claim:engineer"]),
-                                       "engineer", pr_number=None)
+                                       "engineer", evidence=None)
     assert "attempt:1" in add
     assert "claim:engineer" in remove
-    assert "no pull request" in note.lower()
+    assert "no pull-request" in note.lower()
+
+
+def test_each_role_is_judged_on_its_own_artifact():
+    """The analyst never opens a pull request, so judging it on one would fail
+    every successful run it ever has."""
+    _, _, note = handoff.decide(issue(labels=["claim:analyst"]), "analyst", evidence=None)
+    assert "acceptance-criteria" in note
+    assert "pull-request" not in note
+
+
+def test_a_finished_analyst_hands_the_ticket_to_the_engineer():
+    add, remove, _ = handoff.decide(
+        issue(labels=["status:needs-spec", "claim:analyst"]), "analyst",
+        evidence="Wrote 4 acceptance criteria onto the ticket.")
+    assert "status:ready" in add
+    assert "status:needs-spec" in remove and "claim:analyst" in remove
+
+
+def test_a_handoff_never_leaves_two_stages_on_a_ticket():
+    """A ticket wearing both needs-spec and ready is routable twice, which is how
+    two workers end up on one ticket."""
+    add, remove, _ = handoff.decide(
+        issue(labels=["status:needs-spec", "status:ready", "claim:analyst"]),
+        "analyst", evidence="Wrote 4 acceptance criteria onto the ticket.")
+    left = ({"status:needs-spec", "status:ready"} | set(add)) - set(remove)
+    assert left == {"status:ready"}, left
 
 
 def test_the_attempt_counter_advances_rather_than_duplicating():
     add, remove, _ = handoff.decide(issue(labels=["attempt:1", "claim:engineer"]),
-                                    "engineer", pr_number=None)
+                                    "engineer", evidence=None)
     assert "attempt:2" in add and "attempt:1" in remove
 
 
 def test_the_third_failure_escalates_and_stops():
     """Infinite retries are how you wake up to a bill and no progress."""
     add, _, note = handoff.decide(issue(labels=["attempt:2", "claim:engineer"]),
-                                  "engineer", pr_number=None)
+                                  "engineer", evidence=None)
     assert "attempt:3" in add and "needs:human" in add
     assert "will not be picked up again" in note
 
@@ -147,8 +204,8 @@ def test_success_is_judged_by_artifact_not_by_assertion():
     """The same ticket, the same labels — only the PR differs. Nothing in decide()
     consults what the agent said about itself."""
     t = issue(labels=["status:ready", "claim:engineer"])
-    won, _, _ = handoff.decide(t, "engineer", pr_number=1)
-    lost, _, _ = handoff.decide(t, "engineer", pr_number=None)
+    won, _, _ = handoff.decide(t, "engineer", evidence="#1")
+    lost, _, _ = handoff.decide(t, "engineer", evidence=None)
     assert "status:verify" in won and "status:verify" not in lost
 
 
@@ -158,7 +215,7 @@ def test_a_run_that_never_started_costs_no_attempt():
     ticket as unworkable."""
     add, remove, note = handoff.decide(
         issue(labels=["status:ready", "claim:engineer"]), "engineer",
-        pr_number=None, attempted=False)
+        evidence=None, attempted=False)
     assert "claim:engineer" in remove
     assert not any(l.startswith("attempt:") for l in add + remove)
     assert "nothing was attempted" in note.lower()
@@ -168,7 +225,7 @@ def test_a_run_that_never_started_costs_no_attempt():
 def test_an_unattempted_run_does_not_advance_the_stage():
     """It is still ready to build. Nothing happened."""
     add, remove, _ = handoff.decide(issue(labels=["status:ready", "claim:engineer"]),
-                                    "engineer", pr_number=None, attempted=False)
+                                    "engineer", evidence=None, attempted=False)
     assert "status:verify" not in add
     assert "status:ready" not in remove
 
@@ -177,7 +234,7 @@ def test_an_unattempted_run_never_escalates_however_many_times_it_happens():
     """The counter is untouched, so a repeatedly misconfigured company annoys you
     rather than burying the ticket."""
     add, _, note = handoff.decide(issue(labels=["attempt:2", "claim:engineer"]),
-                                  "engineer", pr_number=None, attempted=False)
+                                  "engineer", evidence=None, attempted=False)
     assert "needs:human" not in add
     assert "attempt:3" not in add
 
@@ -193,15 +250,15 @@ def test_a_merged_pr_still_counts_as_a_finished_run():
     right question — so this asserts the contract: any PR number at all means
     the run finished.
     """
-    for pr in (1, 999):
+    for pr in ("#1", "#999"):
         add, _, _ = handoff.decide(issue(labels=["status:ready", "claim:engineer"]),
-                                   "engineer", pr_number=pr)
+                                   "engineer", evidence=f"Opened {pr}.")
         assert "status:verify" in add
 
 
 def test_the_release_names_the_role_it_released():
     for role in ("engineer", "reviewer", "sre"):
-        _, remove, _ = handoff.decide(issue(), role, pr_number=7)
+        _, remove, _ = handoff.decide(issue(), role, evidence="#7")
         assert f"claim:{role}" in remove
 
 

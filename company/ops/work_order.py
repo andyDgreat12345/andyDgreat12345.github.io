@@ -30,6 +30,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from board import DEPTS, RISKS, labels_of  # noqa: E402
 
+# Where each role's standing instructions live. The work order is the
+# assignment; the card is the job.
+ROLE_CARD = {
+    "analyst": "company/roles/01-analyst.md",
+    "engineer": "company/roles/02-engineer.md",
+    "reviewer": "company/roles/03-reviewer.md",
+    "sre": "company/roles/04-sre.md",
+}
+
 WORK_ORDER_MARKER = "## Work order"
 
 # Departments whose tickets touch real people. The agent is told plainly; the
@@ -48,18 +57,58 @@ def latest_work_order(comments: list[dict]) -> str | None:
     return orders[-1] if orders else None
 
 
-def compose(issue: dict, work_order: str | None, repo: str) -> str:
+def finish_instructions(role: str, number: int) -> list[str]:
+    """How this role is expected to leave the ticket.
+
+    Different per role, and not cosmetically so: the analyst must not write code
+    and the engineer must not rewrite the ticket. Telling either one to do the
+    other's job is how a stage gets skipped without anyone noticing.
+    """
+    if role == "analyst":
+        return [
+            "## How to finish",
+            "",
+            "1. **Do not write any code.** Not a fix, not a test, not a "
+            "one-line obvious change. Your output is a specification; someone "
+            "else builds it, and a spec written by whoever already built the "
+            "thing is not a spec.",
+            "2. Work out how anyone would *check* this was done, and write that "
+            "onto the ticket as a checklist of `- [ ]` items. Each one must be "
+            "something a person could verify without asking you what you meant.",
+            "3. Edit the issue body to add them under an `## Acceptance criteria` "
+            "heading, keeping what is already there.",
+            "4. Comment saying what you assumed. Assumptions are where a spec "
+            "goes wrong, and the owner can only correct the ones you write down.",
+            "",
+            "**Done means the ticket now says how the work will be checked.** "
+            "Not that you understand the request — that the next person does.",
+        ]
+
+    return [
+        "## How to finish",
+        "",
+        f"1. Make the change on a new branch named `agent/issue-{number}`.",
+        "2. Run the tests yourself before you open anything. `npm test` and "
+        "`npm run build` for site work; the Python suites `company/ops/test_*.py` "
+        "for company logic. A change you have not run is not finished.",
+        "3. Open a **draft** pull request against `main` whose body says `Closes "
+        f"#{number}` and states what you did and how you checked it.",
+    ]
+
+
+def compose(issue: dict, work_order: str | None, repo: str, role: str = "engineer") -> str:
     """Build the agent's prompt. Pure — every branch is testable."""
     have = labels_of(issue)
     dept = next((d for d in have if d in DEPTS), "dept:hq")
     risk = next((r for r in have if r in RISKS), "risk:med")
     number = issue["number"]
 
+    card = ROLE_CARD.get(role, f"company/roles/{role}.md")
     parts = [
-        f"You are the Engineer for a small agent-run company. You are working in "
-        f"the repository {repo}, on issue #{number}: {issue['title']}",
+        f"You are the {role.title()} for a small agent-run company. You are "
+        f"working in the repository {repo}, on issue #{number}: {issue['title']}",
         "",
-        "Read `company/roles/02-engineer.md` before you start. That is your job "
+        f"Read `{card}` before you start. That is your job "
         "description; what follows is only this one assignment.",
         "",
         f"## The ticket (#{number})",
@@ -79,46 +128,37 @@ def compose(issue: dict, work_order: str | None, repo: str) -> str:
             "",
             "This is a bug in the dispatcher, not an invitation to decide what "
             "the ticket meant. Add the label `needs:human`, remove the label "
-            "`claim:engineer`, comment explaining that the work order is missing, "
+            f"`claim:{role}`, comment explaining that the work order is missing, "
             "and stop. Do not change any other file.",
         ]
 
-    parts += [
-        "",
-        "## How to finish",
-        "",
-        "1. Make the change on a new branch named `agent/issue-" + str(number) + "`.",
-        "2. Run the tests yourself before you open anything. `npm test` and "
-        "`npm run build` for site work; the Python suites `company/ops/test_*.py` "
-        "for company logic. A change you have not run is not finished.",
-        "3. Open a **draft** pull request against `main` whose body says `Closes "
-        f"#{number}` and states what you did and how you checked it.",
+    parts += [""] + finish_instructions(role, number) + [
         "",
         "## Boundaries — these are not advisory",
         "",
-        "- **Never merge your own pull request.** Builder, reviewer and merger are "
-        "three different actors; that separation is the entire design of this "
-        "company. Open it as a draft and stop.",
+        "- **Never merge your own pull request.** Builder, reviewer and merger "
+        "are three different actors; that separation is the entire design of "
+        "this company. If you open one, open it as a draft and stop.",
         f"- **Work on issue #{number} and nothing else.** If you notice another "
-        "problem, mention it in your PR body. Do not fix it, and do not open a "
-        "second pull request.",
+        "problem, say so where you report your work. Do not fix it, and do not "
+        "touch a second ticket.",
         "- **Never edit or remove the `needs:human` label**, never change the "
         "repository variable `COMPANY_PAUSED`, and never raise a spending cap. "
         "Those are the owner's alone.",
         "- **Do not modify files under `.github/workflows/`.** A worker that can "
         "rewrite its own gates has no gates.",
-        "- **If you cannot finish** — blocked, ambiguous, or the acceptance "
-        "criteria do not actually say what done means — add `needs:human`, remove "
-        "`claim:engineer`, and comment what you tried and what you would need. "
-        "Stopping is a valid outcome. Guessing is not.",
+        "- **If you cannot finish** — blocked, ambiguous, or the ticket does not "
+        f"say enough to act on — add `needs:human`, remove `claim:{role}`, and "
+        "comment what you tried and what you would need. Stopping is a valid "
+        "outcome. Guessing is not.",
     ]
 
     if risk == "risk:high":
         parts += [
             "- **This ticket is `risk:high`** — money, credentials, personal data, "
             "or something public-facing. Do not act unilaterally: make the "
-            "smallest defensible change, and say clearly in the PR body what you "
-            "want the owner to check before it lands.",
+            "smallest defensible change, and say clearly where you report your "
+            "work what you want the owner to check before it lands.",
         ]
 
     if dept in PERSONAL_DATA_DEPTS:
@@ -155,6 +195,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
     ap.add_argument("--issue", type=int, required=True)
+    ap.add_argument("--role", default="engineer")
     args = ap.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -164,7 +205,7 @@ def main() -> int:
 
     gh = GitHub(args.repo, token)
     issue = gh.issue(args.issue)
-    print(compose(issue, latest_work_order(gh.comments(args.issue)), args.repo))
+    print(compose(issue, latest_work_order(gh.comments(args.issue)), args.repo, args.role))
     return 0
 
 

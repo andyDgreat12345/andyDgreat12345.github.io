@@ -22,6 +22,7 @@ ground truth. You hold the keys that matter.
 | [`HIRING.md`](HIRING.md) | The plan for the five unfilled roles: what to reuse, what to build, and what not to adopt |
 | [`ROLLOUT.md`](ROLLOUT.md) | 90-day plan, real costs, and the failure modes that kill setups like this |
 | [`roles/`](roles/) | One job description per role — these are literal agent system prompts |
+| [`workers/REHEARSING.md`](workers/REHEARSING.md) | Running a real work order locally on DeepSeek Harness before it costs a ticket an attempt |
 | [`workers/README.md`](workers/README.md) | How a worker is hired, the claim protocol, and the Routine prompt that starts the engineer |
 | [`ops/board.py`](ops/board.py) | Every routing decision, as pure logic. Change how work is routed here and nowhere else |
 | [`ops/assign.py`](ops/assign.py) | The fan-out: who holds a ticket right now, and when a dead worker's claim is reaped |
