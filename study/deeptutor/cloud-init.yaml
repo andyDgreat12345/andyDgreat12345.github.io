@@ -1,0 +1,139 @@
+#cloud-config
+# DeepTutor — full box provisioning, pasted once at server-creation time.
+#
+# HOW TO USE: in the Hetzner console, on the "Create Server" page, open the
+# "Cloud config" box near the bottom and paste this whole file. The box then
+# builds itself on first boot: Docker, Tailscale, firewall, SSH hardening,
+# DeepTutor running on loopback. No SSH session required to stand it up.
+#
+# BEFORE YOU PASTE, two edits and one prerequisite:
+#
+#   1. Replace REPLACE_WITH_TAILSCALE_AUTHKEY below with an auth key from
+#      https://login.tailscale.com/admin/settings/keys
+#      Make it **ephemeral, pre-approved, single-use**. It is written into the
+#      instance's cloud-init metadata, which is readable by anything on the box;
+#      single-use means it is spent the moment this machine joins and is worth
+#      nothing to anyone who reads it later.
+#
+#   2. In the Tailscale admin console → DNS, enable **MagicDNS** and
+#      **HTTPS Certificates**. `tailscale serve` cannot issue a certificate
+#      without them and the serve step below will skip.
+#
+#   3. Attach your SSH key in the Hetzner console (the "SSH keys" section).
+#      This config disables password login, so a box created without a key
+#      attached will lock you out.
+#
+# See README.md for what runs where and why.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - ufw
+  - unattended-upgrades
+  - fail2ban
+
+write_files:
+  # SSH hardening. Hetzner injects your key; from here on it is the only way in.
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+
+  # The deployment. Kept in sync with ./docker-compose.yml in this directory —
+  # it is inlined rather than fetched so that provisioning has no dependency on
+  # a branch, a merge, or GitHub being reachable at boot.
+  - path: /opt/deeptutor/docker-compose.yml
+    permissions: '0644'
+    content: |
+      services:
+        deeptutor:
+          # Pinned, not :latest. A box that silently upgrades itself at 3am is
+          # how a working study tool becomes one you debug instead of study on.
+          image: ghcr.io/hkuds/deeptutor:1.5.12
+          container_name: deeptutor
+          restart: unless-stopped
+          ports:
+            # LOOPBACK ONLY — the security boundary. Auth is off until you
+            # enable it and the sandbox executes shell; published on 0.0.0.0
+            # that is a remote shell for whoever scans the box. Note a 0.0.0.0
+            # bind would also bypass ufw, since Docker writes its iptables
+            # rules ahead of the firewall. Reach it via `tailscale serve`.
+            - "127.0.0.1:3782:3782"
+          volumes:
+            # The only thing on this box worth backing up: knowledge bases,
+            # chat history, notebooks, memory, settings, credentials.
+            - deeptutor-data:/app/data
+          environment:
+            # Host-side code execution off. To get the office skills back, use
+            # upstream's compose with its sandbox-runner sidecar — do not set
+            # this to 1. See README.md.
+            - DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS=0
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 60s
+          mem_limit: 6g
+          logging:
+            driver: json-file
+            options:
+              max-size: "10m"
+              max-file: "3"
+      volumes:
+        deeptutor-data:
+
+runcmd:
+  # ---- Firewall. Only SSH is reachable from the internet; DeepTutor is not
+  # exposed at all, and Tailscale needs no inbound rule (it dials out).
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw --force enable
+
+  # ---- Docker engine + compose plugin, from Docker's own repo.
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - >
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc]
+    https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable"
+    > /etc/apt/sources.list.d/docker.list
+  - apt-get update -qq
+  - apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable --now docker
+
+  # ---- Tailscale. This is the only access path to the web UI.
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --authkey=REPLACE_WITH_TAILSCALE_AUTHKEY --hostname=deeptutor --ssh
+
+  # ---- DeepTutor.
+  - cd /opt/deeptutor && docker compose pull -q && docker compose up -d
+
+  # ---- HTTPS inside the tailnet. Skips harmlessly if MagicDNS/HTTPS certs are
+  # not yet enabled in the admin console; re-run by hand after enabling them.
+  - tailscale serve --bg 3782 || true
+
+  # ---- Unattended security updates.
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+
+  - systemctl restart ssh || systemctl restart sshd || true
+
+final_message: |
+  DeepTutor box up after $UPTIME seconds.
+
+  Get the URL with:   tailscale serve status
+  Expect something like https://deeptutor.<your-tailnet>.ts.net
+
+  If that prints nothing, MagicDNS + HTTPS Certificates are not enabled in the
+  Tailscale admin console. Enable them, then run: tailscale serve --bg 3782
+
+  Then, in the web UI: Settings -> Models, add your provider key. Once your
+  account exists, enable auth in data/user/settings/auth.json and restart with
+  `cd /opt/deeptutor && docker compose restart`.
