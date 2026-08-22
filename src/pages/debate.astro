@@ -30,15 +30,35 @@ const pipeline = [
       debates itself under real judges, and rewrites its own prep from what it learns.
     </p>
     <p class="muted small">
-      Method and retrospective results are public. Live prep for current topics stays
-      private — publishing this month's case just hands it to the other side.
+      Method, retrospectives, and the current topic's full case file are public — cases,
+      blocks, every evidence card, and the complete simulation record behind them.
     </p>
     <div class="links-row">
-      <a class="btn primary" href={path('debate/submit')}>Submit your prep for a round →</a>
+      <a class="btn primary" href={path('library/gig-economy.html')}>Open the current case file →</a>
+      <a class="btn" href={path('debate/submit')}>Submit your prep for a round →</a>
       <a class="btn" href={path('library/')}>Browse the full library →</a>
       <a class="btn" href={path('library/usage.html')}>Token &amp; cost record →</a>
     </div>
   </section>
+
+  <div class="section-head"><h2>Current topic</h2></div>
+  <a class="card cardlink" href={path('library/gig-economy.html')}>
+    <div class="meta">NHSDLC · live topic</div>
+    <h3>On balance, the rise of the gig economy has been more beneficial than harmful</h3>
+    <p>
+      The complete case file: PRO and CON constructives, both block files organized by
+      opposing argument, and 19 evidence cards cross-linked from every citation — click a
+      reference and land on the card, with its verbatim text, its grade, and an honest note
+      on what it is vulnerable to. Includes the round that produced it: thirteen speeches,
+      three deep-clash exchanges, three judge ballots, and the reflection.
+    </p>
+    <div class="tags">
+      <span class="tag">both sides</span>
+      <span class="tag">19 cards</span>
+      <span class="tag">round mode</span>
+      <span class="tag">print-ready</span>
+    </div>
+  </a>
 
   <div class="pipeline">
     {pipeline.map(([step, desc], i) => (
