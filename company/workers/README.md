@@ -10,6 +10,29 @@ worker finds its own claim and reads the order cold.** Nothing pushes work into
 a worker, and no worker chooses what to work on. That separation is what makes
 "no AI is the boss" mechanical rather than aspirational.
 
+## One workflow, many roles
+
+`.github/workflows/company-worker.yml` runs **every** hired role. It reads the
+role off the claim label that woke it, and everything that differs between roles
+lives in a table in `company/ops`:
+
+| What differs | Where it lives |
+|---|---|
+| The prompt | `work_order.finish_instructions()` |
+| What counts as finished | `board.ROLE_ARTIFACT` |
+| Where the ticket goes next | `board.ROLE_STAGE_OUT` |
+| Who is actually hired | `assign.HIRED` |
+| Standing instructions | `company/roles/NN-role.md` |
+
+**Hiring the next role is four entries and a role card, not another workflow.**
+That is deliberate: five copied workflows are five workflows that drift, and the
+drift is invisible until a role starts behaving differently from the others for
+reasons nobody remembers.
+
+`test_assign.py` refuses a role in `HIRED` that has no artifact and no next
+stage — hiring one without an artifact gives a run nothing can grade, and one
+without a stage_out advances the ticket nowhere.
+
 ## The engineer: OpenHands on DeepSeek V4 Flash
 
 Built. `.github/workflows/company-engineer.yml` runs on `issues.labeled`, so the
@@ -64,6 +87,21 @@ agent reporting its own success is exactly the claim that rule distrusts.
 No PR means a failed attempt and the counter advances. Three failures and the
 ticket gets `needs:human` and is never retried automatically.
 
+## The analyst: same worker, different job
+
+Hired. Picks up `status:needs-spec`, and its artifact is **the ticket itself**:
+done means the body now says how the work will be checked.
+
+Its prompt differs from the engineer's in one way that matters more than the
+rest: **it is told not to write code.** Not a fix, not a test, not a one-line
+obvious change. A specification written by whoever already built the thing is
+not a specification, and an analyst that "just quickly fixes it" has skipped the
+build stage, the gate, and the review without anyone deciding to.
+
+So you can file a one-line ticket now. The analyst turns it into acceptance
+criteria, hands it to `status:ready`, and the engineer picks it up from there —
+with you approving the criteria in between if you want to.
+
 ## Roles with no worker are never claimed for
 
 `assign.py` keeps a `HIRED` set, and today it contains one name: the engineer.
@@ -80,6 +118,54 @@ stall alarm already knows not to alarm about that.
 Add a role to `HIRED` the moment a worker exists for it, and not before. Being
 late costs a ticket that waits; being early costs a ticket that lies about
 having failed.
+
+## The gate that needs no model
+
+`company/ops/gate.py`, run by `.github/workflows/company-gate.yml` on every pull
+request. It checks the half of review that needs no judgement:
+
+| Rule | Why it blocks |
+|---|---|
+| `forbidden-path` | `.github/workflows/` touched — a worker that can rewrite its own gates has none |
+| `no-ticket` | No `Closes #N`, so nothing links the work back to the board |
+| `wrong-ticket` | Closes a different ticket than the branch was claimed for |
+| `unticked-criteria` | An unticked box is the author saying it did not finish |
+| `no-test` | Source changed, no test file touched |
+| `test-without-assertion` | An empty test turns a gap into a green tick |
+
+Missing evidence and a non-draft PR are **warnings**, not blocks. A gate that
+blocks on judgement gets routed around, and a routed-around gate is worse than
+none because the merge still looks checked.
+
+**Blocking for `agent/*` branches, advisory for everyone else.** These rules
+encode how a *worker* is asked to submit work; blocking a human on a worker's
+conventions would teach everyone to ignore it.
+
+Three things make this better than a model at its own job: it cannot hallucinate
+a finding, it cannot be switched off by a spend cap or leak a key to a fork, and
+it **shares no training with the builder** — which is the entire reason
+`MODELS.md` wants a different family at the gate. It does not replace a
+reviewer; it means a reviewer spends attention on the half that needs judgement.
+
+## The janitor: duplicate detection
+
+`company/ops/dedupe.py`, run on `issues.opened`. It exists because the board
+produced the bug it prevents — #12 and #13 were the same ticket filed twice, and
+the second would have been claimed, worked and paid for.
+
+Closed tickets are compared too, and that is the costlier catch: a duplicate of
+something already shipped wastes a claim *and* produces a change nobody needed.
+
+Similarity is measured over **words, not characters**, and that took a false
+positive to get right. Character matching scores "lease dashboard" against
+"ledger dashboard" at 0.84 — they share letters, not meaning. Words are matched
+fuzzily so "lease" still finds "leases", but "ledger" is not close enough to
+count.
+
+When it fires it labels `needs:human` and says plainly that it has no judgement,
+because deciding two tickets are the same is one. `GITHUB_TOKEN` is enough here
+and deliberately so: `needs:human` is a label no worker wakes on, so a token
+that cannot trigger workflows is exactly right.
 
 ## The reviewer: still you
 

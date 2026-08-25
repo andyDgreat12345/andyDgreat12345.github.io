@@ -28,7 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from activities import BoardSnapshot, ClaimWrite, LabelWrite  # noqa: E402
 from workflows import HeartbeatWorkflow  # noqa: E402
 
-import board  # noqa: E402  — on sys.path via activities
+import assign  # noqa: E402  — on sys.path via activities
+import board  # noqa: E402
 
 ADDRESS = os.environ.get("TEMPORAL_ADDRESS", "localhost:7233")
 
@@ -171,20 +172,34 @@ async def main() -> int:
     assert result.reported_on == 99
     assert len(CALLS["reports"]) == 1
 
-    # Fan-out. Five tickets were routed and exactly ONE is claimed, because the
-    # engineer is the only role with a worker behind it. The analyst's and the
-    # SRE's tickets are vacancies — the stage is real, nobody is hired for it,
-    # and claiming anyway would expire the lease and escalate the ticket as
-    # though the work had been tried and failed.
+    # Fan-out. Asserted as RULES rather than against a roster, because the
+    # roster changes every time a role is hired and this test has now broken
+    # twice for that reason — each time with correct code underneath. What must
+    # stay true is the relationship between being hired and being claimed for,
+    # not which names happen to be in the set today.
     claimed = sorted((c[0], c[1]) for c in CALLS["claims"])
-    assert claimed == [(1, "claim:engineer")], claimed
     deferred = {d["issue"]: d["why"] for d in result.deferred}
-    # #2 wants an analyst, #5 an SRE: neither exists.
-    assert "no analyst hired" in deferred[2], deferred
+
+    # Nothing is ever claimed for a role with no worker behind it.
+    for _, label in claimed:
+        assert label[len("claim:"):] in assign.HIRED, label
+
+    # And every vacancy is genuinely a vacancy: the stage is real, nobody is
+    # hired for it, and claiming anyway would expire the lease and escalate the
+    # ticket as though the work had been tried and failed.
+    for d in result.deferred:
+        if d.get("vacancy"):
+            assert d["role"] not in assign.HIRED, d
+            assert f"no {d['role']} hired" in d["why"], d
+
+    # The SRE is the standing example — no worker, so #5 waits on the owner.
     assert "no sre hired" in deferred[5], deferred
-    assert all(d.get("vacancy") for d in result.deferred if d["issue"] in (2, 5))
-    # #8 also wants the engineer, who is already holding #1. That is capacity,
-    # not a vacancy — a transient state rather than a standing one.
+    assert any(d.get("vacancy") for d in result.deferred if d["issue"] == 5)
+
+    # #1 and #8 both want the engineer. One is claimed and the other is at
+    # capacity — a transient state, NOT a vacancy. Conflating the two is what
+    # would turn a busy afternoon into a board full of false failures.
+    assert (1, "claim:engineer") in claimed, claimed
     assert "at capacity" in deferred[8], deferred
     assert not any(d.get("vacancy") for d in result.deferred if d["issue"] == 8)
     # Every claim carries a brief, and the brief is self-contained — the worker

@@ -44,6 +44,10 @@ jobs:
         run: python company/ops/test_worker.py
       - name: dispatcher wiring — does it actually claim?
         run: python company/ops/test_dispatch.py
+      - name: deterministic gate
+        run: python company/ops/test_gate.py
+      - name: duplicate detection
+        run: python company/ops/test_dedupe.py
       - name: model routing + spend controller
         run: python company/ops/test_controller.py
 

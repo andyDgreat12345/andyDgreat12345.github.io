@@ -1,0 +1,56 @@
+name: Company gate
+
+# The deterministic half of code review. No model, no API key, no judgement —
+# see company/ops/gate.py for why that makes it strictly better than a reviewer
+# at its own job: it cannot hallucinate a finding, cannot be switched off by a
+# spend cap, and shares no training with the builder.
+#
+# It does not replace a reviewer. It catches the boring half so a reviewer
+# spends attention on the half that needs judgement.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to check
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write   # the finding is posted on the PR, not just in a log
+
+concurrency:
+  group: company-gate-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Deterministic gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Blocking for worker branches, advisory for everyone else. The rules
+      # encode how a WORKER is asked to submit work — branch naming, a ticket
+      # link, ticked criteria — and blocking a human on a worker's conventions
+      # would teach everyone to route around the gate, which is how a gate stops
+      # meaning anything.
+      - name: Check the pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          advisory=""
+          case "$HEAD_REF" in
+            agent/*) ;;                       # a worker's PR — the rules bind
+            *) advisory="--advisory" ;;       # a human's — say it, do not block
+          esac
+          python company/ops/gate.py --pr "$PR" --comment $advisory \
+            | tee -a "$GITHUB_STEP_SUMMARY"

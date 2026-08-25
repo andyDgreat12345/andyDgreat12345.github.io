@@ -1,6 +1,6 @@
-name: Company engineer
+name: Company worker
 
-# The engineer, as an OpenHands agent.
+# Any hired role, as an OpenHands agent.
 #
 # Event-driven, not scheduled, and that is deliberate twice over. The company is
 # already event-shaped — the fan-out applying `claim:engineer` IS the signal, so
@@ -10,6 +10,13 @@ name: Company engineer
 #
 # Nothing here decides what to work on. The heartbeat claims a ticket and writes
 # the work order; this only answers.
+#
+# ONE workflow for every role. The role is read off the claim label that woke it,
+# and everything that differs between roles — the prompt, what counts as having
+# finished, where the ticket goes next — is a table entry in company/ops, not a
+# branch in this file. Hiring the next role is an entry in board.ROLE_ARTIFACT,
+# a role card, and a name in assign.HIRED. It is not a copy of this file, which
+# is how a company ends up with five workflows that disagree.
 
 on:
   issues:
@@ -20,12 +27,18 @@ on:
         description: Issue number to work (bypasses the label trigger)
         required: true
         type: string
+      role:
+        description: Which role to run as
+        required: true
+        default: engineer
+        type: choice
+        options: [engineer, analyst]
 
 # The engineer holds one ticket at a time — the same ROLE_CAPACITY the fan-out
 # enforces. `cancel-in-progress: false` because killing a run mid-edit leaves a
 # half-written branch and a claim nobody released.
 concurrency:
-  group: company-engineer
+  group: company-worker-${{ github.event.label.name || inputs.role }}
   cancel-in-progress: false
 
 permissions:
@@ -38,6 +51,7 @@ jobs:
     outputs:
       go: ${{ steps.check.outputs.go }}
       issue: ${{ steps.check.outputs.issue }}
+      role: ${{ steps.check.outputs.role }}
       refuse: ${{ steps.check.outputs.refuse }}
       configured: ${{ steps.check.outputs.configured }}
     steps:
@@ -46,6 +60,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           LABEL: ${{ github.event.label.name }}
           NUMBER: ${{ github.event.issue.number || inputs.issue }}
+          ROLE_INPUT: ${{ inputs.role }}
           LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
           PAUSED: ${{ vars.COMPANY_PAUSED }}
           # Presence only — the values never enter the log. An empty string here
@@ -62,9 +77,23 @@ jobs:
             echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          if [ "$EVENT" = "issues" ] && [ "$LABEL" != "claim:engineer" ]; then
-            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0   # not our label; nothing to say
-          fi
+          # The role is whichever claim woke us. A label that is not a claim is
+          # not ours, and there is nothing to say about it.
+          case "$EVENT:$LABEL" in
+            issues:claim:*) ROLE="${LABEL#claim:}" ;;
+            issues:*)       echo "go=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            *)              ROLE="$ROLE_INPUT" ;;
+          esac
+
+          # Only roles this workflow knows how to run. An unknown claim label is
+          # a vocabulary bug, and starting an agent with no role card and no
+          # artifact definition would produce a run nothing could judge.
+          case "$ROLE" in
+            engineer|analyst) ;;
+            *) echo "no worker for role '$ROLE'" >> "$GITHUB_STEP_SUMMARY"
+               echo "go=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          echo "role=$ROLE" >> "$GITHUB_OUTPUT"
 
           # needs:human outranks a claim. If both are somehow present the ticket
           # is the owner's, and an agent touching it is the failure this label exists
@@ -121,6 +150,7 @@ jobs:
       - env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE: ${{ needs.gate.outputs.issue }}
+          CLAIM: claim:${{ needs.gate.outputs.role }}
         run: |
           python3 - <<'PY'
           import json, os, urllib.parse, urllib.request
@@ -149,7 +179,7 @@ jobs:
           api(f"/repos/{repo}/issues/{issue}/labels", "POST",
               {"labels": ["needs:human"]})
           api(f"/repos/{repo}/issues/{issue}/labels/"
-              + urllib.parse.quote("claim:engineer"), "DELETE")
+              + urllib.parse.quote(os.environ["CLAIM"]), "DELETE")
           api(f"/repos/{repo}/issues/{issue}/comments", "POST", {"body":
               "**Refused — personal data.**\n\n"
               "This ticket belongs to a department that holds real records, and "
@@ -184,7 +214,7 @@ jobs:
           exit 1     # red, so it is visible rather than a quiet no-op
 
   work:
-    name: Engineer
+    name: Worker
     needs: gate
     if: needs.gate.outputs.go == 'true' && needs.gate.outputs.configured == 'true'
     runs-on: ubuntu-latest
@@ -195,6 +225,7 @@ jobs:
       pull-requests: write
     env:
       ISSUE: ${{ needs.gate.outputs.issue }}
+      ROLE: ${{ needs.gate.outputs.role }}
       BRANCH: agent/issue-${{ needs.gate.outputs.issue }}
     steps:
       # PAT rather than GITHUB_TOKEN, and this is not a preference. A PR opened
@@ -231,7 +262,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          python company/ops/work_order.py --issue "$ISSUE" > /tmp/prompt.txt
+          python company/ops/work_order.py --issue "$ISSUE" --role "$ROLE" > /tmp/prompt.txt
           echo "--- prompt ($(wc -c < /tmp/prompt.txt) bytes) ---"
           cat /tmp/prompt.txt
 
@@ -264,18 +295,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           python company/ops/bank.py \
-            --ticket "$ISSUE" --role engineer \
+            --ticket "$ISSUE" --role "$ROLE" \
             --model deepseek/deepseek-v4-flash \
             --usd "${{ steps.agent.outputs.usd }}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Judged by artifact, not by assertion. The agent does not get to report
-      # its own success — ORG.md says a run with no PR did not happen.
+      # Judged by artifact, not by assertion, and by THIS role's artifact: a
+      # pull request for the engineer, acceptance criteria on the ticket for the
+      # analyst. The agent does not get to report its own success.
       - name: Hand the ticket back
         if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           python company/ops/handoff.py \
-            --issue "$ISSUE" --branch "$BRANCH" --apply \
+            --issue "$ISSUE" --role "$ROLE" --branch "$BRANCH" --apply \
             | tee -a "$GITHUB_STEP_SUMMARY"

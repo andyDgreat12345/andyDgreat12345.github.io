@@ -24,6 +24,32 @@ STAGE_OWNER = {
     "status:verify": ("sre", "mixed"),
 }
 
+# Where a role leaves a ticket it finished, and what counts as having finished.
+#
+# The artifact is the important half. ORG.md says a run producing nothing did
+# not happen, and an agent reporting its own success is exactly the claim that
+# rule distrusts — so every role is judged on something that exists in the
+# repository afterwards, not on what it said about itself. What that something
+# IS differs by role, which is the whole reason this table exists rather than
+# `did the engineer open a PR` being hard-coded in three places.
+ROLE_STAGE_OUT = {
+    "analyst": "status:ready",
+    "engineer": "status:verify",
+    "sre": "status:ship",
+}
+
+ROLE_ARTIFACT = {
+    # A pull request on the ticket's branch.
+    "engineer": "pull-request",
+    # Acceptance criteria on the ticket itself. The analyst's whole job is to
+    # make a vague request checkable, so "did it" means the body now says how
+    # the work will be checked — which has_acceptance_criteria() already tests.
+    "analyst": "acceptance-criteria",
+    # Evidence that it actually ran: a comment from the SRE saying what was
+    # executed and what came back.
+    "sre": "verification-comment",
+}
+
 DEPTS = {"dept:site", "dept:casewriter", "dept:market", "dept:admissions", "dept:hq"}
 SIZES = {"size:s", "size:m", "size:l"}
 RISKS = {"risk:low", "risk:med", "risk:high"}
