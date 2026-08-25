@@ -1,0 +1,81 @@
+# DeepTutor — single-container deployment for one person on one box.
+#
+#   cd /opt/deeptutor && docker compose up -d
+#
+# This is deliberately NOT upstream's docker-compose.yml. That one builds from
+# source and brings up PocketBase plus a sandbox-runner sidecar; this one runs
+# the published all-in-one image with no build step and no code execution. See
+# README.md for when to graduate to upstream's version.
+
+services:
+  deeptutor:
+    # Pinned, not :latest. An unattended box that silently upgrades itself at
+    # 3am is how a working study tool becomes a broken one you have to debug
+    # before you can study. Bump this deliberately: check the release notes,
+    # change the tag, `docker compose up -d`.
+    image: ghcr.io/hkuds/deeptutor:1.5.12
+    container_name: deeptutor
+    restart: unless-stopped
+
+    ports:
+      # LOOPBACK ONLY — this is the security boundary, do not widen it.
+      #
+      # Two upstream defaults make a public port dangerous: authentication is
+      # off until you enable it in data/user/settings/auth.json, and the
+      # sandbox executes shell for its office skills. Published on 0.0.0.0
+      # that combination is a remote shell for anyone who scans the box.
+      #
+      # Note that `-p 0.0.0.0:...` would also punch straight through ufw —
+      # Docker writes its own iptables rules ahead of the firewall's — so the
+      # firewall would NOT save you here. The bind address is the control.
+      #
+      # Reach it from the iPad with `tailscale serve --bg 3782` instead.
+      - "127.0.0.1:3782:3782"
+      # Backend 8001 is intentionally not published. The browser only ever
+      # talks to the frontend origin; Next.js middleware proxies /api/* and
+      # /ws/* to the backend inside the container.
+
+    volumes:
+      # Everything DeepTutor persists lives under this one tree: the admin
+      # workspace and runtime settings (data/user), per-user workspaces
+      # (data/users), auth state and provider credentials (data/system),
+      # knowledge bases, chat history, notebooks, memory.
+      #
+      # A named volume rather than a bind mount, so the container's own uid
+      # owns it and there is no host-permissions dance on first boot.
+      # This is the ONLY thing on the box worth backing up.
+      - deeptutor-data:/app/data
+
+    environment:
+      # Host-side code execution OFF. Without a sandbox-runner sidecar the
+      # app would otherwise fall back to bwrap or a restricted subprocess in
+      # its own container; on an unattended box, off is the right default.
+      # Do not set this to 1 to get the office skills back — bring up
+      # upstream's runner sidecar instead. See README.md.
+      - DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS=0
+
+    healthcheck:
+      # Upstream's own check, against the backend port inside the container.
+      # start_period is generous because first boot initialises the data tree
+      # and the Next.js server before anything answers.
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Document parsing (MinerU/Docling) is the memory-hungry path and will
+    # happily consume the box if a large PDF goes wrong. Leave headroom for
+    # sshd so a bad parse never costs you access to the machine.
+    mem_limit: 6g
+
+    logging:
+      # Default json-file logging is unbounded; on a long-lived box that is a
+      # slow-motion disk-full incident.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  deeptutor-data:
