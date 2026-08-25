@@ -15,6 +15,7 @@ ground truth. You hold the keys that matter.
 |---|---|
 | [`CHARTER.md`](CHARTER.md) | What the company is for, who holds which authority, how to stop it |
 | [`ORG.md`](ORG.md) | The org chart, the ticket lifecycle, and the gates between stages |
+| [`RELIABILITY.md`](RELIABILITY.md) | Every failure found so far, what stops it now, and what is still open |
 | [`OPERATING.md`](OPERATING.md) | What the owner actually does, how failures are caught, and the order roles get hired |
 | [`MODELS.md`](MODELS.md) | Which of Claude Code / DeepSeek / local models does which job, and the two meters that cap them |
 | [`INFRA.md`](INFRA.md) | Where to physically build it, how it stays up 24/7, how you drive it from an iPad |
